@@ -1,6 +1,6 @@
 {
   "tool": "rnd-profiler",
-  "tool_version": "0.3.1",
+  "tool_version": "0.4.0",
   "profile": "keit_performance",
   "profile_name": "KEIT 산업기술 연구개발 성과조사정보",
   "input_file": "input_keit_2024.csv",
@@ -51,6 +51,13 @@
     "inFlag": 0,
     "inExpand": 6
   },
+  "group_by": "세부사업명",
+  "groups": {
+    "count": 131,
+    "single_row": 78,
+    "max_rows": 14
+  },
+  "total_like_rows": 0,
   "all_checks_ok": true,
   "disabled_features": [
     "연도 추이(연도 값이 2개 미만)"

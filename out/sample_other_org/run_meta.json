@@ -1,6 +1,6 @@
 {
   "tool": "rnd-profiler",
-  "tool_version": "0.3.1",
+  "tool_version": "0.4.0",
   "profile": "sample_other_org",
   "profile_name": "가상 기관 연구비·성과 자료 (범용성 시연)",
   "input_file": "input_other_org.csv",
@@ -51,6 +51,13 @@
     "inFlag": 0,
     "inExpand": 0
   },
+  "group_by": "사업구분",
+  "groups": {
+    "count": 3,
+    "single_row": 0,
+    "max_rows": 8
+  },
+  "total_like_rows": 0,
   "all_checks_ok": true,
   "disabled_features": []
 }

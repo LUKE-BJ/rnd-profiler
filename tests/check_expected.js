@@ -150,7 +150,48 @@ if (O) {
   const y = O.observations.find(o => o.key === 'years');
   ok(!!y && y.group === '범위' && y.text.includes('연도 값이 2개') && O.observations[1].key === 'years', '가상 기관(연도 2개): 여러 해 안내가 범위 묶음 맨 앞쪽에 있음');
 }
-ok(C.VERSION === '0.3.1', '버전 0.3.1');
+ok(C.VERSION === '0.4.0', '버전 0.4.0');
+
+// v0.4: 묶는 기준 바꾸기 · 묶음별 합계 · 후보 수 · 검산 보강 · 합계 행 의심
+// 손계산: 묶음 X(A,B,C)·Y(D,E)·미지정(F). 투입/과제수/논문 — A 10/1/5, B 20/5/1, C 30/3/3, D 40/2/2, E 50/9/4, F(묶음 칸 비음) 60/4/0
+const hand4 = [['사업', '묶음', '구분', '투입', '과제수', '논문', '특허'], ['A', 'X', '원천', '10', '1', '5', '0'], ['B', 'X', '원천', '20', '5', '1', '0'], ['C', 'X', '사업화', '30', '3', '3', '0'],
+  ['D', 'Y', '사업화', '40', '2', '2', '0'], ['E', 'Y', '사업화', '50', '9', '4', '0'], ['F', '', '원천', '60', '4', '0', '0']];
+const hp4 = { id: 'hand4', name: '손계산4', columns: { input: '투입', count: '과제수', paper: ['논문'], patent: ['특허'], label: ['사업'], group: '묶음' }, units: hp.units };
+const H4 = C.analyze(hand4, hp4);
+const gX = H4.groups.find(g => g.group === 'X'), gY = H4.groups.find(g => g.group === 'Y'), gU = H4.groups.find(g => g.group === '(미지정)');
+ok(H4.groups.length === 3 && gX.rows === 3 && gX.input === 60 && gX.cols['논문'] === 9 && gY.rows === 2 && gY.input === 90 && gU.rows === 1 && gU.cols['과제수'] === 4, '손계산: 묶음 X·Y·(미지정)의 행 수·투입·논문·과제수 합');
+ok(H4.groupInfo.count === 3 && H4.groupInfo.singles === 1 && H4.groupInfo.maxRows === 3 && Math.abs(H4.groupInfo.avgRows - 2) < 1e-12, '손계산: 묶음 요약 3개·1행짜리 1개·최대 3행·평균 2행');
+ok(H4.checks.map(c => c.item).join() === '행 수,과제수,투입,논문,특허,논문 합계(1개 컬럼),특허 합계(1개 컬럼),유형 분류 행 수(분석 대상 기준)', '손계산: 검산 항목(행 수가 맨 앞, 컬럼마다 하나, 유형 행 수가 맨 뒤)');
+ok(H4.checks.every(c => c.ok && c.diffSplit === 0 && (c.groupTotal === null || c.diffGroup === 0)) && H4.allOk, '손계산: 모든 검산 일치, 차이 0');
+ok(H4.checks.filter(c => c.groupTotal !== null).length === H4.checks.length - 1, '손계산: 유형 행 수만 빼고 모든 검산 항목에 집계표 합계가 있음(개별 컬럼 포함)');
+// 묶는 기준 바꾸기: 구분(원천 3행·사업화 3행)
+const H5 = C.analyze(hand4, hp4, { groupBy: '구분' });
+ok(H5.cols.group === '구분' && H5.groups.length === 2 && H5.groups.find(g => g.group === '원천').rows === 3 && H5.groups.find(g => g.group === '원천').input === 90 && H5.allOk, '손계산: 묶는 기준을 구분으로 바꾸면 원천 3행·투입 90, 검산 일치');
+const H6 = C.analyze(hand4, hp4, { groupBy: '' });
+ok(H6.groups === null && H6.groupInfo.column === null && H6.checks.every(c => c.groupTotal === null) && H6.allOk, '손계산: 묶지 않음이면 집계표 없음, 검산은 일치');
+ok(C.analyze(hand4, hp4, { groupBy: '없는컬럼' }).groups === null, '손계산: 없는 컬럼을 고르면 묶지 않음으로 처리');
+// 묶음별 후보 수: 전체 후보 수와 묶음 합이 같음
+for (const [name, R] of [['손계산', H4], ['KEIT', K], ['가상 기관', O]]) {
+  if (!R || !R.groups) continue;
+  ok(R.groups.reduce((s, g) => s + g.flagged, 0) === R.flagged.length && R.groups.reduce((s, g) => s + g.expand, 0) === R.expandList.length, name + ': 묶음별 점검·확대 후보 수의 합이 전체 후보 수와 같음');
+}
+if (K) {
+  ok(K.checks.length === 9 && K.checks.every(c => c.ok) && K.checks.slice(0, -1).every(c => c.groupTotal !== null) && K.checks[K.checks.length - 1].groupTotal === null, 'KEIT: 검산 9항목(행 수·과제·투입·논문 2·특허·논문 합·특허 합·유형) 모두 일치, 개별 컬럼도 집계표와 대조');
+  ok(K.groupInfo.count === 131 && K.groupInfo.singles === 78 && K.groupInfo.maxRows === 14, 'KEIT: 묶음 131개, 1행짜리 78개, 최대 14행');
+  const Yr = C.analyze(table_keit, keitProfile, { groupBy: '성과년도' });
+  ok(Yr.groups.length === 1 && Yr.groups[0].rows === 268 && Yr.allOk && Yr.groups[0].cols['지급 정부출연금(억원)'] === 15938, 'KEIT: 성과년도로 묶으면 1묶음·268행·투입 15,938, 검산 일치');
+  const Nm = C.analyze(table_keit, keitProfile, { groupBy: '내역사업명' });
+  ok(Nm.groups.length === 266 && Nm.allOk && Nm.flagged.length === K.flagged.length && Nm.expandList.length === K.expandList.length, 'KEIT: 내역사업명으로 묶으면 266묶음, 검산 일치, 후보 수(6·16)는 묶는 기준과 무관하게 같음');
+  ok(K.totalRows.length === 0, 'KEIT: 합계·소계 행 의심 없음');
+}
+// 합계 행 의심: 사업명이 '합계'인 행, 묶음이 '소계'인 행
+const hand7 = hand4.concat([['합계', 'X', '원천', '210', '24', '15', '0'], ['G', '소계', '원천', '5', '1', '1', '0']]);
+const H7 = C.analyze(hand7, hp4);
+ok(H7.totalRows.length === 2 && H7.totalRows[0].no === 7 && H7.totalRows[1].no === 8 && H7.observations.some(o => o.key === 'totalRows' && o.group === '범위' && o.text.includes('2행')), '손계산: 합계·소계로 보이는 행 2행(데이터 7·8번째)을 찾고 관찰문에 적음');
+ok(!hand4.some(r => false) && H4.totalRows.length === 0 && !H4.observations.some(o => o.key === 'totalRows'), '손계산: 합계 행이 없으면 경고 없음');
+// 검산 불일치가 실제로 잡히는지: 집계표 합계를 일부러 어긋나게 만든 값으로 차이 계산이 동작하는지 확인
+const forced = { source: 10, analyzable: 4, excluded: 5, groupTotal: 12 };
+ok(Math.round((forced.source - forced.analyzable - forced.excluded) * 1e6) / 1e6 === 1 && forced.groupTotal - forced.source === 2, '차이 식: 원본-분석-제외, 집계표-원본 (손계산 1과 2)');
 
 // 파서
 ok(JSON.stringify(C.parseCSV('a,b\n"1,182",x\n')) === JSON.stringify([['a', 'b'], ['1,182', 'x']]), 'CSV 따옴표 쉼표 처리');

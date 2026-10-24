@@ -105,7 +105,7 @@
     }).sort(function (a, b) { return b.score - a.score; });
   }
 
-  var VERSION = '0.3.1';
+  var VERSION = '0.4.0';
   // smallInputBottom: 투입 하위 몇 %를 '분모 작음'으로 표시할지. expand*: 확대 검토 후보(투입 하위 N% 이면서 복합 밀도 상위 M%).
   var DEFAULT_TH = { typePaper: 0.65, typePatent: 0.35, flagInputTop: 0.25, flagDensityBottom: 0.40, concentrationTop: 0.10,
     smallInputBottom: 0.25, expandInputBottom: 0.50, expandDensityTop: 0.25, smallCountMax: 3 };
@@ -138,7 +138,9 @@
     var paperCols = asArray(C.paper), patentCols = asArray(C.patent);
     var countCol = asArray(C.count)[0] || null;
     var labelCols = asArray(C.label);
-    var groupCol = C.group && (C.group in idx) ? C.group : null;
+    // 묶는 기준: opts.groupBy가 있으면 그 컬럼('' 이면 묶지 않음), 없으면 프로필의 columns.group
+    var groupName = opts.groupBy !== undefined ? opts.groupBy : C.group;
+    var groupCol = groupName && (groupName in idx) ? groupName : null;
     var yearCol = C.year && (C.year in idx) ? C.year : null;
     var auxCols = asArray(C.aux).filter(function (c) { return c in idx; });
     var numCols = [].concat(countCol ? [countCol] : [], [inputCol], paperCols, patentCols, auxCols);
@@ -280,9 +282,11 @@
       var gm = {}, order = [];
       rows.forEach(function (r) {
         var g = r.group || '(미지정)';
-        if (!gm[g]) { gm[g] = { group: g, rows: 0, count: 0, input: 0, paper: 0, patent: 0 }; order.push(g); }
+        if (!gm[g]) { gm[g] = { group: g, rows: 0, count: 0, input: 0, paper: 0, patent: 0, flagged: 0, expand: 0, cols: {} }; order.push(g); }
         var o = gm[g]; o.rows++; o.count += r.count; o.input += r.input; o.paper += r.paper; o.patent += r.patent;
+        numCols.forEach(function (c) { o.cols[c] = (o.cols[c] || 0) + (r.v[c] || 0); });
       });
+      analyzable.forEach(function (r) { var o = gm[r.group || '(미지정)']; if (r.flag) o.flagged++; if (r.expand) o.expand++; });
       groups = order.map(function (g) {
         var o = gm[g];
         o.paperDensity = hasPaper && o.input > 0 ? o.paper / o.input * per : null;
@@ -291,6 +295,9 @@
         return o;
       }).sort(function (a, b) { return b.input - a.input || (a.group < b.group ? -1 : 1); });
     }
+    // 묶음 요약: 1행짜리 묶음이 많으면 집계표가 행 표와 거의 같아진다
+    var groupInfo = groups ? { column: groupCol, count: groups.length, singles: groups.filter(function (o) { return o.rows === 1; }).length,
+      maxRows: Math.max.apply(null, groups.map(function (o) { return o.rows; })), avgRows: rows.length / groups.length } : { column: null, count: 0, singles: 0, maxRows: 0, avgRows: 0 };
 
     // 연도 추이: 연도가 2개 이상일 때만
     var years = null;
@@ -312,18 +319,18 @@
 
     // 검산: 원본 합계 = 분석 대상 + 제외, 집계표 합계 = 원본 합계
     var checks = [];
-    function addCheck(name, col, key) {
+    function addCheck(name, col) {
       var src = sum(rows.map(function (r) { return r.v[col] || 0; }));
       var a = sum(analyzable.map(function (r) { return r.v[col] || 0; }));
       var e = sum(excluded.map(function (r) { return r.v[col] || 0; }));
-      var g = groups && key ? sum(groups.map(function (o) { return o[key]; })) : null;
-      checks.push({ item: name, source: src, analyzable: a, excluded: e, groupTotal: key ? g : null,
+      var g = groups ? sum(groups.map(function (o) { return o.cols[col] || 0; })) : null;
+      checks.push({ item: name, source: src, analyzable: a, excluded: e, groupTotal: g,
         ok: Math.abs(src - (a + e)) < 1e-9 && (g === null || Math.abs(g - src) < 1e-9) });
     }
-    if (countCol) addCheck(countCol, countCol, 'count');
-    addCheck(inputCol, inputCol, 'input');
-    paperCols.forEach(function (c) { addCheck(c, c, null); });
-    patentCols.forEach(function (c) { addCheck(c, c, null); });
+    if (countCol) addCheck(countCol, countCol);
+    addCheck(inputCol, inputCol);
+    paperCols.forEach(function (c) { addCheck(c, c); });
+    patentCols.forEach(function (c) { addCheck(c, c); });
     if (groups && hasPaper) {
       var s = sum(rows.map(function (r) { return r.paper; }));
       checks.push({ item: '논문 합계(' + paperCols.length + '개 컬럼)', source: s, analyzable: sum(analyzable.map(function (r) { return r.paper; })),
@@ -337,12 +344,32 @@
         ok: Math.abs(s2 - sum(groups.map(function (o) { return o.patent; }))) < 1e-9 });
     }
 
+    // 행 수 검산(맨 앞)과 유형 분류 행 수 검산: 데이터 값이 아니라 도구가 행을 빠뜨리거나 두 번 세지 않았는지 본다
+    checks.unshift({ item: '행 수', source: rows.length, analyzable: analyzable.length, excluded: excluded.length,
+      groupTotal: groups ? sum(groups.map(function (o) { return o.rows; })) : null,
+      ok: rows.length === analyzable.length + excluded.length && (!groups || sum(groups.map(function (o) { return o.rows; })) === rows.length) });
+    if (typeCount) {
+      var tc = sum(Object.keys(typeCount).map(function (k) { return typeCount[k]; }));
+      checks.push({ item: '유형 분류 행 수(분석 대상 기준)', source: analyzable.length, analyzable: tc, excluded: 0, groupTotal: null, ok: tc === analyzable.length });
+    }
+    // 차이: 어디서 얼마나 어긋났는지 보이게 한다(0이면 일치)
+    checks.forEach(function (c) {
+      c.diffSplit = Math.round((c.source - c.analyzable - c.excluded) * 1e6) / 1e6;
+      c.diffGroup = c.groupTotal === null ? null : Math.round((c.groupTotal - c.source) * 1e6) / 1e6;
+    });
+
     // 이중 집계 경고: 같은 (연도, 그룹, 라벨) 조합이 두 번 이상 나오면 합계가 부풀 수 있다.
     var seen = {}, dups = 0;
     rows.forEach(function (r) {
       var key = r.year + '|' + r.group + '|' + r.label;
       if (seen[key]) dups++; else seen[key] = 1;
     });
+
+    // 합계·소계 행 의심: 원본에 합계 행이 데이터 행과 함께 들어 있으면 합계가 두 번 더해진다.
+    var TOTAL_WORD = /^(합계|소계|총계|총합|총합계|계|total|subtotal|grand total|sum)$/i;
+    var totalRows = rows.filter(function (r) {
+      return r.label.split(' / ').concat([r.group, r.year]).some(function (p) { return TOTAL_WORD.test(String(p).trim()); });
+    }).map(function (r) { return { no: r._no, label: r.label || r.group }; });
 
     var excludedWithOutput = excluded.filter(function (r) { return r.paper + r.patent > 0; });
     var tot = {
@@ -378,7 +405,7 @@
       cols: { input: inputCol, count: countCol, paper: paperCols, patent: patentCols, aux: auxCols, group: groupCol, year: yearCol },
       rows: rows, analyzable: analyzable, excluded: excluded, excludedWithOutput: excludedWithOutput,
       cut: cut, flagged: flagged, expandList: expandList, smallInfo: smallInfo, coverage: coverage, stability: stability, fewInfo: fewInfo,
-      typeCount: typeCount, conc: conc, groups: groups, years: years,
+      typeCount: typeCount, conc: conc, groups: groups, groupInfo: groupInfo, totalRows: totalRows, years: years,
       checks: checks, dups: dups, badCells: badCells, totals: tot,
       allOk: checks.every(function (c) { return c.ok; }) && badCells === 0,
       disabled: [].concat(
@@ -411,6 +438,10 @@
     scope += inc.length ? ' ' + inc.join(', ') + '를 포함합니다.' : ' 성과 컬럼은 없습니다.';
     if (t.excludedWithOutput) scope += ' 투입이 0이거나 비어 제외한 ' + t.excluded + '행 중 ' + t.excludedWithOutput + '행에는 성과가 있으며(논문 ' + num(t.excludedPaper) + '건, 특허 ' + num(t.excludedPatent) + '건) 밀도를 계산할 수 없습니다.';
     o.push({ key: 'scope', text: scope });
+    if (R.totalRows.length) {
+      var nos = R.totalRows.slice(0, 5).map(function (x) { return x.no; }).join(', ') + (R.totalRows.length > 5 ? ' 등' : '');
+      o.push({ key: 'totalRows', text: '합계·소계로 보이는 행이 ' + R.totalRows.length + '행(데이터 ' + nos + '번째) 있습니다. 합계 행이 데이터 행과 함께 들어 있으면 합계가 두 번 더해집니다. 입력 자료에서 합계 행을 빼고 다시 분석하세요.' });
+    }
     if (R.years) {
       o.push({ key: 'years', text: '연도 값이 ' + R.years.length + '개(' + R.years.map(function (y) { return y.year; }).join('·') + ')인 자료입니다. 분위수·후보·안정성은 모든 연도의 행을 한 묶음으로 계산하므로, 같은 사업의 다른 해가 서로의 위치에 영향을 줍니다. 연도별로 보려면 연도마다 따로 분석하세요.' });
     }
@@ -445,7 +476,7 @@
       o.push({ key: 'small', text: '복합 밀도 상위 ' + pct(TOP_DENSITY, 0) + '(' + si.k + '행) 중 ' + si.smallInTop + '행은 투입 하위 ' + pct(R.thresholds.smallInputBottom, 0) + '(≤ ' + num(R.cut.smallLo) + u + ')인 분모 작음 행입니다.' });
       if (R.fewInfo) o.push({ key: 'sample', text: '분석 대상 ' + t.analyzable + '행 중 과제 수 ' + R.fewInfo.max + '개 이하인 행은 ' + R.fewInfo.rows + '행(' + pct(R.fewInfo.rows / t.analyzable) + ')이며, 점검 후보 중 ' + R.fewInfo.inFlag + '행, 확대 검토 후보 중 ' + R.fewInfo.inExpand + '행입니다.' });
     }
-    var GROUP = { scope: '범위', years: '범위', concentration: '투입과 성과', type: '투입과 성과', flags: '점검 후보', stabilityFlag: '점검 후보',
+    var GROUP = { scope: '범위', totalRows: '범위', years: '범위', concentration: '투입과 성과', type: '투입과 성과', flags: '점검 후보', stabilityFlag: '점검 후보',
       expand: '확대 검토 후보', stabilityExpand: '확대 검토 후보', small: '표본이 작은 행', sample: '표본이 작은 행' };
     o.forEach(function (x) { x.group = GROUP[x.key]; });
     return o;
@@ -536,6 +567,7 @@
       if (f.hasPaper) gh.push('논문 밀도');
       if (f.hasPatent) gh.push('특허 밀도');
       if (f.hasPaper || f.hasPatent) gh.push('복합 밀도');
+      if (f.hasPaper || f.hasPatent) { gh.push('점검 후보 수'); gh.push('확대 후보 수'); }
       files['groups.csv'] = toCSV(gh, R.groups.map(function (o) {
         var x = [o.group, o.rows, o.count, o.input];
         if (f.hasPaper) x.push(o.paper);
@@ -543,13 +575,14 @@
         if (f.hasPaper) x.push(r4(o.paperDensity));
         if (f.hasPatent) x.push(r4(o.patentDensity));
         if (f.hasPaper || f.hasPatent) x.push(r4(o.comp));
+        if (f.hasPaper || f.hasPatent) { x.push(o.flagged); x.push(o.expand); }
         return x;
       }));
     }
 
     // check.csv
-    files['check.csv'] = toCSV(['검산 항목', '원본 합계', '분석 대상 합계', '제외 합계', '집계표 합계', '결과'],
-      R.checks.map(function (c) { return [c.item, c.source, c.analyzable, c.excluded, c.groupTotal === null ? '' : c.groupTotal, c.ok ? '일치' : '불일치']; }));
+    files['check.csv'] = toCSV(['검산 항목', '원본 합계', '분석 대상 합계', '제외 합계', '집계표 합계', '결과', '차이(원본-분석-제외)', '차이(집계표-원본)'],
+      R.checks.map(function (c) { return [c.item, c.source, c.analyzable, c.excluded, c.groupTotal === null ? '' : c.groupTotal, c.ok ? '일치' : '불일치', c.diffSplit, c.diffGroup === null ? '' : c.diffGroup]; }));
 
     // run_meta.json (결정적 출력을 위해 시각은 meta로 받을 때만 기록)
     var rm = {
@@ -557,7 +590,8 @@
       input_file: meta.inputName || null, rows: R.totals.rows, analyzable_rows: R.totals.analyzable, excluded_rows: R.totals.excluded,
       thresholds: R.thresholds, cutoffs: { input_ge: R.cut.inputHi, density_le: R.cut.densityLo, small_input_le: R.cut.smallLo, expand_input_le: R.cut.expandInputLo, expand_density_ge: R.cut.expandDensityHi },
       stability: R.stability ? { cells: R.stability.cells, offsets_pct_point: R.stability.offsets.map(function (o) { return Math.round(o * 100); }), flag: R.stability.flag, expand: R.stability.expand } : null,
-      few_tasks: R.fewInfo, all_checks_ok: R.allOk, disabled_features: R.disabled
+      few_tasks: R.fewInfo, group_by: R.cols.group, groups: { count: R.groupInfo.count, single_row: R.groupInfo.singles, max_rows: R.groupInfo.maxRows },
+      total_like_rows: R.totalRows.length, all_checks_ok: R.allOk, disabled_features: R.disabled
     };
     if (meta.generatedAt) rm.generated_at = meta.generatedAt;
     files['run_meta.json'] = JSON.stringify(rm, null, 2) + '\n';
@@ -586,14 +620,15 @@
     L.push('');
     L.push('## 1. 검산');
     L.push('');
-    L.push('| 항목 | 원본 합계 | 분석 대상 | 제외 | 집계표 | 결과 |');
-    L.push('|---|---:|---:|---:|---:|---|');
+    L.push('| 항목 | 원본 합계 | 분석 대상 | 제외 | 집계표 | 결과 | 분할 차이 | 집계표 차이 |');
+    L.push('|---|---:|---:|---:|---:|---|---:|---:|');
     R.checks.forEach(function (c) {
-      L.push('| ' + mdCell(c.item) + ' | ' + num(c.source) + ' | ' + num(c.analyzable) + ' | ' + num(c.excluded) + ' | ' + (c.groupTotal === null ? '-' : num(c.groupTotal)) + ' | ' + (c.ok ? '일치' : '**불일치**') + ' |');
+      L.push('| ' + mdCell(c.item) + ' | ' + num(c.source) + ' | ' + num(c.analyzable) + ' | ' + num(c.excluded) + ' | ' + (c.groupTotal === null ? '-' : num(c.groupTotal)) + ' | ' + (c.ok ? '일치' : '**불일치**') + ' | ' + num(c.diffSplit) + ' | ' + (c.diffGroup === null ? '-' : num(c.diffGroup)) + ' |');
     });
     L.push('');
     L.push('- 전체 ' + t.rows + '행 중 분석 대상 ' + t.analyzable + '행, 투입 0 또는 빈 칸으로 제외 ' + t.excluded + '행(이 중 성과가 있는 행 ' + t.excludedWithOutput + '행).');
-    L.push('- 이중 집계 의심(같은 연도·그룹·항목 중복): ' + R.dups + '건. 숫자로 읽히지 않은 칸: ' + R.badCells + '개.');
+    L.push('- 이중 집계 의심(같은 연도·그룹·항목 중복): ' + R.dups + '건. 숫자로 읽히지 않은 칸: ' + R.badCells + '개. 합계·소계로 보이는 행: ' + R.totalRows.length + '행.');
+    L.push('- 묶는 기준: ' + (R.groupInfo.column ? R.groupInfo.column + '(' + R.groupInfo.count + '묶음, 1행짜리 ' + R.groupInfo.singles + '개, 최대 ' + R.groupInfo.maxRows + '행)' : '없음(집계표 없음)') + '.');
     L.push('');
     L.push('## 2. 규모');
     L.push('');
