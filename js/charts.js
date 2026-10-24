@@ -14,9 +14,10 @@
   function showTip(host, html, clientX, clientY) {
     var t = tipFor(host), b = host.getBoundingClientRect();
     t.innerHTML = html; t.style.display = 'block';
-    var x = clientX - b.left + 12, y = clientY - b.top + 12;
-    if (x + t.offsetWidth > b.width) x = clientX - b.left - t.offsetWidth - 12;
-    t.style.left = Math.max(0, x) + 'px'; t.style.top = y + 'px';
+    var sl = host.scrollLeft || 0, x = clientX - b.left + sl + 12, y = clientY - b.top + 12;
+    if (x - sl + t.offsetWidth > b.width) x = clientX - b.left + sl - t.offsetWidth - 12;
+    if (y + t.offsetHeight > b.height) y = Math.max(0, clientY - b.top - t.offsetHeight - 12);
+    t.style.left = Math.max(sl, x) + 'px'; t.style.top = y + 'px';
   }
   function hideTip(host) { var t = host.querySelector('.tip'); if (t) t.style.display = 'none'; }
 
@@ -33,7 +34,7 @@
     var lx = function (v) { return Math.log10(v); }, ty = function (v) { return Math.log10(1 + v); };
     var X = function (v) { return m.l + (lx(v) - lx(xmin)) / (lx(xmax) - lx(xmin)) * (W - m.l - m.r); };
     var Y = function (v) { return H - m.b - ty(v) / ty(ymax) * (H - m.t - m.b); };
-    var s = '<svg viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="투입 대비 복합 밀도 산점도. 같은 내용을 아래 표에서 확인할 수 있습니다.">' + HATCH;
+    var s = '<svg class="sc" viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="투입 대비 복합 밀도 산점도. 같은 내용을 아래 표에서 확인할 수 있습니다.">' + HATCH;
     [1, 3, 10, 30, 100, 300, 1000, 3000, 10000].forEach(function (v) {
       if (v < xmin || v > xmax) return;
       s += '<line class="grid" x1="' + X(v) + '" x2="' + X(v) + '" y1="' + m.t + '" y2="' + (H - m.b) + '"/><text x="' + X(v) + '" y="' + (H - m.b + 16) + '" text-anchor="middle">' + fmt(v, 0) + '</text>';
@@ -71,7 +72,7 @@
     s += '<circle class="hl" r="9" cx="-50" cy="-50" id="sc-hl"/></svg>';
     host.innerHTML = s; host.appendChild(tipFor(host));
     var svg = host.querySelector('svg'), hl = svg.querySelector('#sc-hl');
-    svg.addEventListener('mousemove', function (e) {
+    var move = function (e) {
       var b = svg.getBoundingClientRect(), k = W / b.width, mx = (e.clientX - b.left) * k, my = (e.clientY - b.top) * k;
       var best = null, bd = 14 * 14;
       pts.forEach(function (p) { var d = (p.x - mx) * (p.x - mx) + (p.y - my) * (p.y - my); if (d < bd) { bd = d; best = p; } });
@@ -80,7 +81,9 @@
       var r = best.r;
       showTip(host, '<b>' + esc(r.label) + '</b><br>' + (r.group ? esc(r.group) + '<br>' : '') + '투입 ' + fmt(r.input) + R.units.input +
         '<br>논문 ' + fmt(r.paper, 0) + ' · 특허 ' + fmt(r.patent, 0) + '<br>복합 밀도 ' + fmt(r.comp, 2) + (r.type ? '<br>' + r.type : '') + (r.flag ? '<br>점검 후보' : '') + (r.expand ? '<br>확대 검토 후보' : '') + (r.small ? '<br>분모 작음' : '') + (r.fewTasks ? '<br>과제 수 적음' : '') + (r.flag ? ' · 유지 ' + r.flagHits + '/' + R.stability.cells : '') + (r.expand ? ' · 유지 ' + r.expandHits + '/' + R.stability.cells : ''), e.clientX, e.clientY);
-    });
+    };
+    svg.addEventListener('mousemove', move);
+    svg.addEventListener('click', move); // 터치 화면에서는 눌러서 값을 본다
     svg.addEventListener('mouseleave', function () { hl.setAttribute('cx', -50); hideTip(host); });
   }
 

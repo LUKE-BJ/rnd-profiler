@@ -125,3 +125,14 @@ h3 { font-size: 14.5px; margin: 0 0 8px; }
 footer { color: var(--muted); font-size: 12.5px; padding: 8px 0 40px; }
 .hidden { display: none !important; }
 .sr { position: absolute; left: -9999px; }
+
+/* 한눈에 보기 묶음 */
+.obs-h { font-size: 14px; margin: 14px 0 6px; color: var(--ink2); }
+.obs-h:first-of-type { margin-top: 4px; }
+/* 좁은 화면: 차트를 줄이지 않고 가로로 밀어 보게 해서 글자가 읽히게 한다 */
+@media (max-width: 640px) {
+  .chart { overflow-x: auto; overflow-y: hidden; }
+  .chart svg { min-width: 340px; }
+  .chart svg.sc { min-width: 640px; }
+  .grid2 > *, .grid2.wide > * { min-width: 0; }
+}

@@ -176,6 +176,21 @@
 
   /* ---------- 화면 그리기 ---------- */
 
+  // 한눈에 보기: 묶음 이름을 소제목으로, 범위(빠진 것 패널에 따로 나옴)는 빼고 여러 해 안내는 위에 눈에 띄게 둔다
+  function glanceGroups(R) {
+    var years = R.observations.filter(function (o) { return o.key === 'years'; })[0];
+    var html = years ? '<div class="msg warn" style="margin-bottom:12px">' + esc(years.text) + '</div>' : '';
+    var order = [], by = {};
+    R.observations.forEach(function (o) {
+      if (o.group === '범위') return;
+      if (!by[o.group]) { by[o.group] = []; order.push(o.group); }
+      by[o.group].push(o.text);
+    });
+    return html + order.map(function (g) {
+      return '<h3 class="obs-h">' + esc(g) + '</h3><ul class="obs">' + by[g].map(function (t) { return '<li>' + esc(t) + '</li>'; }).join('') + '</ul>';
+    }).join('');
+  }
+
   function render(R) {
     var t = R.totals, u = R.units.input, f = R.flags;
 
@@ -183,7 +198,7 @@
     $('sec-glance').innerHTML = '<h2>한눈에 보기</h2>' +
       '<p class="sub">규칙으로 채운 문장입니다. 숫자 비교만 적었고 원인이나 우열은 판단하지 않았습니다.</p>' +
       '<div class="msg ' + (R.allOk ? 'ok' : 'err') + '" style="margin-bottom:10px">' + (R.allOk ? '✓ 검산이 모두 일치합니다.' : '✕ 검산에 불일치가 있습니다. 아래 수치를 쓰기 전에 검산 표를 먼저 확인하세요.') + ' <a href="#sec-check">검산 표 보기</a></div>' +
-      '<ul class="obs">' + R.observations.filter(function (o) { return o.key !== 'scope'; }).map(function (o) { return '<li>' + esc(o.text) + '</li>'; }).join('') + '</ul>';
+      glanceGroups(R);
 
     // 0-2. 빠진 것: 분석에 들어오지 못한 몫
     var cv = R.coverage, mrows = [{ k: '행 수', all: t.rows, inc: t.analyzable, exc: t.excluded, sh: cv.rows }];
