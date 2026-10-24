@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>R&D 성과구조 진단 도구</title>
+<meta name="description" content="공공 R&D 집계 CSV를 올리면 검산, 성과 밀도, 유형, 집중도, 점검 후보를 한 화면에 보여 주는 규칙 기반 도구. 서버·AI 없음.">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<header class="top">
+  <div class="wrap">
+    <h1>R&amp;D 성과구조 진단 도구</h1>
+    <p>공공 R&amp;D 집계 CSV를 넣으면 합계 검산부터 성과 밀도, 성과 유형, 투입 집중도, 점검 후보까지 한 화면에 정리하고 파일로 저장합니다. 계산 기준은 별도 프로필(JSON)에 있어 다른 기관 자료도 같은 방식으로 처리합니다.</p>
+    <div class="pills"><span class="pill">서버 없음</span><span class="pill">AI·API 키 없음</span><span class="pill">자료가 브라우저 밖으로 나가지 않음</span><span class="pill">규칙 기반 탐색 도구</span></div>
+  </div>
+</header>
+
+<div class="wrap">
+  <section class="panel" id="sec-input">
+    <h2>1. 자료와 기준</h2>
+    <p class="sub">자료는 CSV 파일을 고르거나 표를 붙여 넣습니다(엑셀에서 복사한 탭 구분도 됩니다). 컬럼 구성이 맞는 기준(프로필)을 자동으로 고릅니다.</p>
+    <div class="grid2">
+      <div class="stack">
+        <div class="row">
+          <button type="button" class="primary" id="ex-keit">KEIT 예시 불러오기</button>
+          <button type="button" id="ex-other">가상 기관 예시 불러오기</button>
+        </div>
+        <div><label class="f" for="file">CSV 파일 선택 (UTF-8·CP949 자동 판별)</label><input type="file" id="file" accept=".csv,.txt,.tsv"></div>
+        <div><label class="f" for="paste">또는 붙여넣기 (첫 줄은 컬럼명)</label><textarea id="paste" spellcheck="false" placeholder="성과년도,세부사업명,내역사업명,전체과제수,..."></textarea></div>
+        <div class="row"><button type="button" class="primary" id="run">분석하기</button><span class="note" id="inname"></span></div>
+        <div id="msg"></div>
+      </div>
+      <div class="stack">
+        <div><label class="f" for="profile">기준 프로필</label><select id="profile"></select>
+          <div class="note" id="match" style="margin-top:6px"></div></div>
+        <div><label class="f" for="pfile">프로필 JSON 추가 (선택)</label><input type="file" id="pfile" accept=".json,application/json"></div>
+        <details id="thbox"><summary>판정 기준값 조정</summary>
+          <div class="th-grid" id="th"></div>
+          <div class="row" style="margin-top:10px"><button type="button" id="th-reset">프로필 기본값으로</button><span class="note">값을 바꾸면 바로 다시 계산합니다.</span></div>
+        </details>
+        <details id="mapbox"><summary>컬럼 직접 지정 (새 프로필 만들기)</summary>
+          <div id="mapform" class="stack"></div>
+        </details>
+      </div>
+    </div>
+  </section>
+
+  <div id="result" class="hidden">
+    <section class="panel" id="sec-check"></section>
+    <section class="panel" id="sec-kpi"></section>
+    <section class="panel" id="sec-scatter"></section>
+    <section class="panel" id="sec-dist"></section>
+    <section class="panel" id="sec-flags"></section>
+    <section class="panel" id="sec-groups"></section>
+    <section class="panel hidden" id="sec-years"></section>
+    <section class="panel" id="sec-all"></section>
+    <section class="panel" id="sec-excl"></section>
+    <section class="panel" id="sec-save"></section>
+    <section class="panel" id="sec-limits"></section>
+  </div>
+  <footer>모든 계산은 이 페이지 안에서만 이뤄집니다. 탐색용 선별 자료이며 사업 평가나 순위가 아닙니다.</footer>
+</div>
+
+<script src="js/data.js"></script>
+<script src="js/core.js"></script>
+<script src="js/charts.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>

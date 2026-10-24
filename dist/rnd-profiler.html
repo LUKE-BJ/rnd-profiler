@@ -1,0 +1,1231 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>R&D 성과구조 진단 도구</title>
+<meta name="description" content="공공 R&D 집계 CSV를 올리면 검산, 성과 밀도, 유형, 집중도, 점검 후보를 한 화면에 보여 주는 규칙 기반 도구. 서버·AI 없음.">
+<style>
+:root {
+  color-scheme: light;
+  --bg: #f4f5f7; --surface: #ffffff; --ink: #121a26; --ink2: #475264; --muted: #758092;
+  --line: #dde1e8; --line2: #eceff3; --accent: #1d5fc4; --accent-ink: #ffffff; --soft: #eaf1fb;
+  --ok: #17794f; --ok-bg: #e5f4ec; --bad: #b3261e; --bad-bg: #fbe9e7; --warn-bg: #fff4dc; --warn: #8a5a00;
+  --s1: #2a78d6; --s2: #eb6834; --s3: #1baf7a; --sn: #9aa3af;
+  --font: "Pretendard", "Noto Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", "Segoe UI", system-ui, sans-serif;
+  --mono: ui-monospace, "SF Mono", Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+    --bg: #0f141b; --surface: #171d26; --ink: #eef1f5; --ink2: #b7c0cd; --muted: #8b95a5;
+    --line: #2a3340; --line2: #212934; --accent: #5b9bf0; --accent-ink: #0b1220; --soft: #1b2a41;
+    --ok: #55c58f; --ok-bg: #16322a; --bad: #f08a82; --bad-bg: #3a1e1c; --warn-bg: #3a2f14; --warn: #e8bd62;
+    --s1: #3987e5; --s2: #d95926; --s3: #199e70; --sn: #6b7380;
+  }
+}
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.6 var(--font); }
+a { color: var(--accent); }
+.wrap { max-width: 1120px; margin: 0 auto; padding: 0 20px; }
+header.top { background: var(--surface); border-bottom: 1px solid var(--line); }
+header.top .wrap { padding-top: 28px; padding-bottom: 24px; }
+h1 { font-size: 26px; line-height: 1.25; margin: 0 0 6px; letter-spacing: -0.02em; }
+header p { margin: 0; color: var(--ink2); max-width: 70ch; }
+.pills { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 14px; }
+.pill { font-size: 12.5px; padding: 3px 10px; border: 1px solid var(--line); border-radius: 99px; color: var(--ink2); background: var(--bg); }
+section.panel { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; margin: 18px 0; padding: 20px 22px; }
+section.panel > h2 { font-size: 17px; margin: 0 0 4px; letter-spacing: -0.01em; }
+.sub { color: var(--muted); font-size: 13.5px; margin: 0 0 14px; max-width: 80ch; }
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+.grid2.wide { grid-template-columns: 1.55fr 1fr; }
+@media (max-width: 860px) { .grid2, .grid2.wide { grid-template-columns: 1fr; } }
+label.f { display: block; font-size: 13px; color: var(--ink2); margin: 0 0 4px; font-weight: 600; }
+textarea, select, input[type=text], input[type=number] {
+  width: 100%; font: 13px/1.5 var(--mono); color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 7px; padding: 8px 10px;
+}
+select, input[type=number], input[type=text] { font-family: var(--font); font-size: 14px; }
+textarea { min-height: 120px; resize: vertical; }
+input[type=file] { font-size: 13px; max-width: 100%; }
+button, .btn {
+  font: 600 14px var(--font); border: 1px solid var(--line); background: var(--surface); color: var(--ink);
+  padding: 8px 14px; border-radius: 7px; cursor: pointer;
+}
+button:hover { border-color: var(--accent); }
+button.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible, summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.stack > * + * { margin-top: 12px; }
+.note { font-size: 13px; color: var(--ink2); }
+.msg { padding: 9px 12px; border-radius: 7px; font-size: 13.5px; }
+.msg.err { background: var(--bad-bg); color: var(--bad); }
+.msg.ok { background: var(--ok-bg); color: var(--ok); }
+.msg.warn { background: var(--warn-bg); color: var(--warn); }
+.th-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+.th-grid input { text-align: right; }
+details { border: 1px solid var(--line); border-radius: 8px; padding: 10px 14px; background: var(--bg); }
+details > summary { cursor: pointer; font-weight: 600; font-size: 14px; }
+details[open] > summary { margin-bottom: 10px; }
+.chk { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 13.5px; }
+.chk label { display: flex; align-items: center; gap: 5px; }
+
+/* 검산 띠 */
+.ledger { border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.ledger-head { display: flex; align-items: center; gap: 12px; padding: 12px 16px; font-weight: 700; }
+.ledger-head.ok { background: var(--ok-bg); color: var(--ok); }
+.ledger-head.bad { background: var(--bad-bg); color: var(--bad); }
+.ledger-head .eq { font-weight: 500; color: var(--ink2); font-size: 13.5px; }
+
+/* 표 */
+.tw { overflow-x: auto; border: 1px solid var(--line); border-radius: 8px; }
+table { border-collapse: collapse; width: 100%; font-size: 13.5px; }
+th, td { padding: 7px 11px; border-bottom: 1px solid var(--line2); text-align: left; white-space: nowrap; }
+td.l, th.l { white-space: normal; min-width: 140px; }
+th { background: var(--bg); color: var(--ink2); font-weight: 600; position: sticky; top: 0; }
+th.sort { cursor: pointer; }
+th.sort:hover { color: var(--accent); }
+td.n, th.n { text-align: right; font-variant-numeric: tabular-nums; }
+tr:last-child td { border-bottom: 0; }
+tr.flag td:first-child { box-shadow: inset 3px 0 0 var(--s2); }
+.tag { display: inline-block; font-size: 12px; padding: 1px 8px; border-radius: 99px; color: var(--ink); background: var(--bg); border: 1px solid var(--line); }
+.tag i { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 5px; }
+
+/* KPI */
+.kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; }
+.kpi { border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; }
+.kpi b { display: block; font-size: 22px; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+.kpi span { font-size: 12.5px; color: var(--muted); }
+
+/* 차트 */
+.chart { position: relative; }
+.chart svg { width: 100%; height: auto; display: block; overflow: visible; }
+.chart text { font: 11.5px var(--font); fill: var(--ink2); }
+.chart .axis { stroke: var(--line); stroke-width: 1; }
+.chart .grid { stroke: var(--line2); stroke-width: 1; }
+.chart .ttl { fill: var(--muted); }
+.chart .s1 { fill: var(--s1); } .chart .s2 { fill: var(--s2); } .chart .s3 { fill: var(--s3); } .chart .sn { fill: var(--sn); }
+.chart .l1 { stroke: var(--s1); fill: none; stroke-width: 2; }
+.chart circle.pt { stroke: var(--surface); stroke-width: 2; }
+.chart circle.ring { fill: none; stroke: var(--ink); stroke-width: 1.5; }
+.chart circle.hl { fill: none; stroke: var(--ink); stroke-width: 2; pointer-events: none; }
+.chart .zone { fill: url(#hatch); }
+.chart .cutline { stroke: var(--muted); stroke-dasharray: 4 4; stroke-width: 1; }
+.chart .zlabel { fill: var(--ink2); font-weight: 600; }
+.tip {
+  position: absolute; pointer-events: none; z-index: 5; background: var(--ink); color: var(--bg); font-size: 12.5px; line-height: 1.5;
+  padding: 7px 10px; border-radius: 6px; max-width: 280px; display: none; box-shadow: 0 2px 10px rgba(0,0,0,.2);
+}
+.legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 13px; color: var(--ink2); margin-bottom: 8px; }
+.legend i { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; vertical-align: -1px; }
+.legend .ringkey { background: none; border: 1.5px solid var(--ink); }
+h3 { font-size: 14.5px; margin: 0 0 8px; }
+.limits { font-size: 13.5px; color: var(--ink2); margin: 0; padding-left: 18px; }
+.limits li + li { margin-top: 4px; }
+footer { color: var(--muted); font-size: 12.5px; padding: 8px 0 40px; }
+.hidden { display: none !important; }
+.sr { position: absolute; left: -9999px; }
+
+</style>
+</head>
+<body>
+<header class="top">
+  <div class="wrap">
+    <h1>R&amp;D 성과구조 진단 도구</h1>
+    <p>공공 R&amp;D 집계 CSV를 넣으면 합계 검산부터 성과 밀도, 성과 유형, 투입 집중도, 점검 후보까지 한 화면에 정리하고 파일로 저장합니다. 계산 기준은 별도 프로필(JSON)에 있어 다른 기관 자료도 같은 방식으로 처리합니다.</p>
+    <div class="pills"><span class="pill">서버 없음</span><span class="pill">AI·API 키 없음</span><span class="pill">자료가 브라우저 밖으로 나가지 않음</span><span class="pill">규칙 기반 탐색 도구</span></div>
+  </div>
+</header>
+
+<div class="wrap">
+  <section class="panel" id="sec-input">
+    <h2>1. 자료와 기준</h2>
+    <p class="sub">자료는 CSV 파일을 고르거나 표를 붙여 넣습니다(엑셀에서 복사한 탭 구분도 됩니다). 컬럼 구성이 맞는 기준(프로필)을 자동으로 고릅니다.</p>
+    <div class="grid2">
+      <div class="stack">
+        <div class="row">
+          <button type="button" class="primary" id="ex-keit">KEIT 예시 불러오기</button>
+          <button type="button" id="ex-other">가상 기관 예시 불러오기</button>
+        </div>
+        <div><label class="f" for="file">CSV 파일 선택 (UTF-8·CP949 자동 판별)</label><input type="file" id="file" accept=".csv,.txt,.tsv"></div>
+        <div><label class="f" for="paste">또는 붙여넣기 (첫 줄은 컬럼명)</label><textarea id="paste" spellcheck="false" placeholder="성과년도,세부사업명,내역사업명,전체과제수,..."></textarea></div>
+        <div class="row"><button type="button" class="primary" id="run">분석하기</button><span class="note" id="inname"></span></div>
+        <div id="msg"></div>
+      </div>
+      <div class="stack">
+        <div><label class="f" for="profile">기준 프로필</label><select id="profile"></select>
+          <div class="note" id="match" style="margin-top:6px"></div></div>
+        <div><label class="f" for="pfile">프로필 JSON 추가 (선택)</label><input type="file" id="pfile" accept=".json,application/json"></div>
+        <details id="thbox"><summary>판정 기준값 조정</summary>
+          <div class="th-grid" id="th"></div>
+          <div class="row" style="margin-top:10px"><button type="button" id="th-reset">프로필 기본값으로</button><span class="note">값을 바꾸면 바로 다시 계산합니다.</span></div>
+        </details>
+        <details id="mapbox"><summary>컬럼 직접 지정 (새 프로필 만들기)</summary>
+          <div id="mapform" class="stack"></div>
+        </details>
+      </div>
+    </div>
+  </section>
+
+  <div id="result" class="hidden">
+    <section class="panel" id="sec-check"></section>
+    <section class="panel" id="sec-kpi"></section>
+    <section class="panel" id="sec-scatter"></section>
+    <section class="panel" id="sec-dist"></section>
+    <section class="panel" id="sec-flags"></section>
+    <section class="panel" id="sec-groups"></section>
+    <section class="panel hidden" id="sec-years"></section>
+    <section class="panel" id="sec-all"></section>
+    <section class="panel" id="sec-excl"></section>
+    <section class="panel" id="sec-save"></section>
+    <section class="panel" id="sec-limits"></section>
+  </div>
+  <footer>모든 계산은 이 페이지 안에서만 이뤄집니다. 탐색용 선별 자료이며 사업 평가나 순위가 아닙니다.</footer>
+</div>
+
+<script>
+/* tools/build.js 가 만든 파일입니다. 직접 고치지 마세요. */
+window.BUILTIN = {"profiles":[{"id":"keit_performance","name":"KEIT 산업기술 연구개발 성과조사정보","description":"공공데이터포털 15105259 (한국산업기술기획평가원). 내역사업 단위 집계 자료.","columns":{"year":"성과년도","group":"세부사업명","label":["내역사업명"],"count":"전체과제수","input":"지급 정부출연금(억원)","paper":["과학인용색인(SCI) 논문(건)","과학인용색인 외(비SCI) 논문(건)"],"patent":["특허등록(건)"],"aux":["특허출원(건)","기술수준향상(퍼센트)","기술격차(년)"]},"units":{"input":"억원","densityPer":10,"densityLabel":"출연금 10억원당"},"thresholds":{"typePaper":0.65,"typePatent":0.35,"flagInputTop":0.25,"flagDensityBottom":0.4,"concentrationTop":0.1}},{"id":"sample_other_org","name":"가상 기관 연구비·성과 자료 (범용성 시연)","description":"컬럼명·단위가 KEIT와 다른 가상 자료. 다른 기관 자료는 이처럼 프로필만 추가하면 된다.","columns":{"year":"연도","group":"사업구분","label":["사업구분","과제군"],"count":"과제 수","input":"연구비(백만원)","paper":["논문(편)"],"patent":["특허 등록(건)"],"aux":["기술이전(건)"]},"units":{"input":"백만원","densityPer":100,"densityLabel":"연구비 1억원(100백만원)당"},"thresholds":{"typePaper":0.65,"typePatent":0.35,"flagInputTop":0.25,"flagDensityBottom":0.4,"concentrationTop":0.1}}],"examples":[{"id":"keit_2024","name":"KEIT 산업기술 연구개발 성과조사정보 2024","profile":"keit_performance","file":"input_keit_2024.csv","text":"﻿성과년도,세부사업명,내역사업명,전체과제수,지급 정부출연금(억원),과학인용색인(SCI) 논문(건),과학인용색인 외(비SCI) 논문(건),특허출원(건),특허등록(건),기술수준향상(퍼센트),기술격차(년)\r\n2024,\"3D생체조직칩기반신약개발플랫폼구축기술개발사업(산업부,과기부)\",3D 생체조직 기능측정기술개발(과기부),4,0,2,1,0,2,0,0\r\n2024,\"3D생체조직칩기반신약개발플랫폼구축기술개발사업(산업부,과기부)\",3D 생체조직기반 약물평가시스템 개발(과기부),2,0,5,3,3,0,7,-1\r\n2024,\"3D생체조직칩기반신약개발플랫폼구축기술개발사업(산업부,과기부)\",3D 생체조직기반 약물평가시스템 개발(산업부),3,0,4,0,3,0,23,-2\r\n2024,\"3D생체조직칩기반신약개발플랫폼구축기술개발사업(산업부,과기부)\",3D생체조직칩제품화,6,0,10,2,11,1,24,-2\r\n2024,5G기반이동형유연의료플랫폼기술개발사업,5G기반이동형유연의료플랫폼기술개발사업,4,21,0,0,4,0,10,-1\r\n2024,AI기반스마트하우징플랫폼및서비스기술개발(산업부),AI기반스마트하우징플랫폼및서비스기술개발,5,0,0,0,1,0,6,-1\r\n2024,CDM기반정밀의료데이터통합플랫폼기술개발,CDM 표준안 마련 및 규약 개선,1,0,0,0,0,0,-30,2\r\n2024,CDM기반정밀의료데이터통합플랫폼기술개발,CDM 플랫폼 구축 및 비즈니스 창출,9,0,1,0,3,0,-3,-1\r\n2024,ESSㆍ수소시설 화재안전기술 연구개발,ESS 화재대응,2,5,5,0,1,2,0,0\r\n2024,ESSㆍ수소시설 화재안전기술 연구개발,수소ㆍ전기차 화재대응,2,0,0,0,0,0,30,-1\r\n2024,ESSㆍ수소시설 화재안전기술 연구개발,수소저장ㆍ운송화재대응,2,2,2,1,4,0,0,0\r\n2024,ESS기술개발사업[일몰],중대형이차전지상용화기술개발,7,0,0,0,0,0,6,0\r\n2024,K-방역 생활용품 시험인프라 구축지원(비R&D),항바이러스 시험평가를 위한 시험인프라 구축 지원,1,0,0,0,0,0,30,-4\r\n2024,\"eVTOL자율비행핵심기술및비행안정성,운용성시험평가기술개발사업(R&D)\",\"eVTOL자율비행핵심기술및비행안정성,운용성시험평가기술개발\",4,55,4,7,3,4,10,-2\r\n2024,i-Ceramic 플랫폼 구축사업(R&D),i-Ceramic플랫폼구축사업,2,0,0,0,0,0,10,-1\r\n2024,국가표준기술개발및보급,R&D사업화표준연계,3,12,0,0,0,0,7,-3\r\n2024,국가표준기술개발및보급,국가참조표준데이터개발보급,20,0,0,0,3,0,5,-2\r\n2024,국가표준기술개발및보급,국가표준기술력향상,471,298,89,25,14,9,5,-1\r\n2024,국가표준기술개발및보급,산업데이터표준화및인증지원,4,6,0,0,0,1,3,-1\r\n2024,국가표준기술개발및보급,상용표준물질개발보급,97,0,2,0,1,2,12,-2\r\n2024,국민 소방 협력 초기대응 현장지원 기술개발,대국민 화재훈련기술,1,0,0,2,0,0,90,-4\r\n2024,국민 소방 협력 초기대응 현장지원 기술개발,화재피난 대피력 향상기술,1,0,3,3,0,0,-20,10\r\n2024,국민안전감시및대응무인항공기융합시스템구축및운용,국민안전감시및대응무인항공기융합시스템구축및운용(산업부),5,0,0,0,0,0,9,-1\r\n2024,국방무인기초내열엔진소재개발(R&D),국방무인기초내열엔진소재개발,7,10,2,1,0,0,1,0\r\n2024,국방섬유소재산업육성사업,국방섬유소재산업육성사업,6,5,0,2,0,2,4,-1\r\n2024,국제적합성평가기반구축(비R&D),시험인증서비스산업화지원,20,0,0,0,0,0,3,-1\r\n2024,권역별신산업육성(~21),자율주행자동차핵심기술개발,11,0,0,0,0,2,21,-2\r\n2024,규제샌드박스융합신제품인증기술개발,인증기술개발,65,4,1,3,3,1,2,0\r\n2024,규제샌드박스융합신제품인증기준개발,규제샌드박스융합신제품인증기준개발,15,0,0,0,0,0,8,-1\r\n2024,글로벌주력산업품질대응뿌리기술개발,글로벌주력산업품질대응뿌리기술개발,51,20,9,11,9,14,7,-1\r\n2024,기계장비산업기술개발,제조기반생산시스템,186,711,58,54,203,72,12,-2\r\n2024,기계장비산업기술개발,제조장비산업전주기기술개발,3,32,0,1,2,2,13,-2\r\n2024,기계장비산업기술개발,제조장비시스템스마트제어기술개발,4,101,11,5,4,0,4,-1\r\n2024,기계장비산업기술개발,제조장비실증,73,0,2,3,17,6,7,-1\r\n2024,나노융합2020+,나노융합2020+,18,0,0,0,3,4,6,-1\r\n2024,나노융합산업핵심기술개발,나노소재수요연계제품화,3,0,0,0,0,0,8,-1\r\n2024,나노융합산업핵심기술개발,나노융합,31,0,4,0,0,3,14,-2\r\n2024,나노융합혁신제품기술개발사업,나노융합혁신제품기술개발,41,135,59,28,62,17,12,-1\r\n2024,나노융합현장수요기반실증지원사업,나노융합현장수요기반실증지원사업,1,5,0,0,0,0,5,-2\r\n2024,나노제품성능.안전평가기술개발및기업지원사업,나노제품성능안전평가기술개발및기업지원,14,16,2,1,0,1,10,-1\r\n2024,대체물질활용기술개발,대체물질활용기술개발,5,0,0,0,0,0,10,-1\r\n2024,드론활용서비스시장창출지원사업,미래 드론활용서비스 범용플랫폼 개발,1,0,0,0,0,0,-10,1\r\n2024,드론활용서비스시장창출지원사업,산업생태계조성 및 해외진출 지원,1,0,0,0,0,0,15,-1\r\n2024,드론활용서비스시장창출지원사업,활용서비스 패키지 구축 및 운용,3,0,0,0,0,2,16,-2\r\n2024,드론활용서비스시장창출지원사업,활용서비스시장 진입 장애요소 해결형 기술개발,1,0,0,0,0,0,0,0\r\n2024,디자인산업기술개발,CMF디자인핵심기술개발사업,5,38,1,0,4,0,13,0\r\n2024,디자인산업기술개발,디자인혁신역량강화,166,200,7,23,116,89,6,-1\r\n2024,디자인혁신역량강화,글로벌디자인전문기업육성,17,0,0,0,0,1,6,-1\r\n2024,디자인혁신역량강화,디자인전문기술개발,1,0,0,0,0,0,0,0\r\n2024,디자인혁신역량강화,미래선행디자인기술개발,2,0,0,0,0,1,8,-2\r\n2024,디자인혁신역량강화,서비스디자인기반제조업신생태계구축,13,0,0,0,0,0,5,0\r\n2024,로봇산업기술개발,로봇산업핵심기술개발사업,130,512,107,39,194,58,8,-1\r\n2024,로봇산업기술개발,시스템산업미래성장동력,14,0,0,0,0,2,15,-2\r\n2024,로봇산업기술개발,재난및위험작업현장근로자의사고방지를위한안전로봇기술개발,2,18,1,3,13,0,0,0\r\n2024,로봇산업핵심기술개발사업,로봇원천기술,15,0,0,0,0,0,16,-2\r\n2024,로봇산업핵심기술개발사업,로봇핵심공통기반기술,3,0,0,0,0,0,-23,0\r\n2024,로봇산업핵심기술개발사업,범부처협력로봇제품기술,7,0,0,0,0,0,12,-3\r\n2024,로봇산업핵심기술개발사업,인공지능융합로봇시스템기술,15,0,0,0,0,0,6,0\r\n2024,리튬기반차세대이차전지성능고도화및제조기술개발,리튬기반차세대이차전지성능고도화및제조기술개발,11,75,30,5,48,13,10,-2\r\n2024,마그네슘(Mg)계세라믹원재료국내생산시범사업(R&D),마그네슘계원재료국내생산시범,4,20,1,1,4,3,4,0\r\n2024,무인자율주행기술의언택트서비스실용화기술개발및기술실증,무인자율주행기술의언택트서비스실용화기술개발및기술실증,5,17,2,1,5,7,16,-4\r\n2024,바이오나노산업개방형생태계조성촉진,나노융합기반고도화사업,1,0,0,0,0,0,0,0\r\n2024,바이오매스기반탄소중립형바이오플라스틱제품기술개발,바이오매스기반차세대생분해성바이오플라스틱제조기술개발,2,9,5,0,2,0,0,0\r\n2024,바이오매스기반탄소중립형바이오플라스틱제품기술개발,석유계플라스틱대체바이오매스기반생분해성바이오플라스틱제품기술개발,3,17,10,1,5,0,13,-1\r\n2024,바이오산업기술개발,5G기반스마트헬스케어제품사업화및실증기술지원,1,2,1,0,0,0,5,0\r\n2024,바이오산업기술개발,PHR기반개인맞춤형건강관리시스템,12,0,0,0,0,0,6,-1\r\n2024,바이오산업기술개발,경험지식기반 가상훈련시스템,1,0,0,0,0,0,0,0\r\n2024,바이오산업기술개발,구조기반백신기술상용화,4,18,14,0,6,0,24,-2\r\n2024,바이오산업기술개발,디지털헬스케어,59,304,38,19,54,9,14,-2\r\n2024,바이오산업기술개발,맞춤형진단치료제품,66,303,49,5,96,29,10,-2\r\n2024,바이오산업기술개발,바이오산업생산고도화,19,0,1,0,0,1,22,-3\r\n2024,바이오산업기술개발,스마트바이오생산시스템개발,3,0,1,0,0,0,21,-5\r\n2024,바이오산업기술개발,유망바이오IP사업화촉진,20,0,2,0,5,10,13,-1\r\n2024,바이오산업기술개발,첨단바이오신소재,57,298,123,37,91,17,14,-2\r\n2024,바이오산업기술개발,휴먼마이크로바이옴의약품제품화지원,12,80,20,2,9,0,1,-1\r\n2024,바이오산업핵심기술개발사업,바이오핵심기술개발,14,0,0,1,2,2,10,-1\r\n2024,바이오위해평가원팀리노베이션사업,산업용 LMO 평가 및 시설 안전관리 고도화 총괄,1,0,0,0,0,0,15,-2\r\n2024,바이오위해평가원팀리노베이션사업,산업용LMO심사제도고도화,8,0,2,0,1,0,-9,2\r\n2024,바이오위해평가원팀리노베이션사업,생산공정이용시설 안전관리 고도화 및 가이드 라인 개발,3,0,0,0,0,0,5,-1\r\n2024,백신원부자재생산고도화기술개발,백신생산공정기술개발,5,30,2,6,3,0,4,1\r\n2024,백신원부자재생산고도화기술개발,백신용cGMP급핵심원부자재개발,6,37,2,0,3,0,7,-4\r\n2024,부품소재산업경쟁력향상,핵심소재경쟁력강화,1,0,0,0,0,0,0,0\r\n2024,사회복합재난 대응기술개발,사고대응 기술개발,3,30,3,2,14,1,8,-1\r\n2024,사회복합재난 대응기술개발,사회재난 취약성 및 피해영향 분석기술개발,2,9,0,1,2,0,0,0\r\n2024,사회복합재난 대응기술개발,시설물 사고예방 기술개발,3,21,1,4,9,7,10,-2\r\n2024,사회복합재난 대응기술개발,탄소중립 대응 안전관리 강화,2,9,1,5,0,1,5,-1\r\n2024,산업기술R&D연구기획사업,산업기술R&D연구기획사업,100,0,0,0,0,0,0,0\r\n2024,산업기술거점센터육성시범사업,산업기술거점센터육성시범사업,3,15,29,10,35,9,-8,1\r\n2024,산업기술국제협력,국제공동기술개발R&D,5,15,1,0,0,0,1,0\r\n2024,산업기술알키미스트프로젝트사업,산업기술알키미스트프로젝트사업,89,255,144,19,112,21,4,-1\r\n2024,산업단지환경조성,서비스산업융합고도화,1,0,5,5,3,10,0,0\r\n2024,산업단지환경조성,여수석유화학산단통합안전체계구축,1,0,0,0,0,0,0,0\r\n2024,산업소재핵심기술개발,금속재료,29,0,2,0,0,2,8,-1\r\n2024,산업소재핵심기술개발,섬유의류,24,0,1,0,0,2,24,-2\r\n2024,산업소재핵심기술개발,세라믹,16,0,0,0,0,0,17,-1\r\n2024,산업소재핵심기술개발,첨단뿌리기술,19,0,11,0,3,2,16,-1\r\n2024,산업소재핵심기술개발,화학공정소재,39,0,9,0,2,5,12,-2\r\n2024,산업용임베디드시스템기술개발사업(R&D),산업용지능융합부품기술개발,6,0,0,0,1,4,6,-1\r\n2024,산업용임베디드시스템기술개발사업(R&D),임베디드인공지능시스템기술개발,5,0,0,0,0,1,7,0\r\n2024,산업위기지역미래형전기차부품개발(R&D),산업위기지역미래형전기차부품개발,7,0,0,0,0,0,6,-1\r\n2024,산업일자리고도화기술개발,산업구조전환촉진기술개발,2,0,0,0,0,0,5,-1\r\n2024,산업일자리고도화기술개발,제조안전혁신기술개발,6,0,0,1,0,0,6,-4\r\n2024,산업일자리고도화기술개발,현장지식자산화및노동력증강기술개발,5,10,0,1,9,0,0,0\r\n2024,산업현장핵심기술수시개발,글로벌기술장벽대응맞춤기술개발,11,0,0,0,0,0,13,-2\r\n2024,산업현장핵심기술수시개발,산업경쟁력강화,11,0,3,4,3,6,16,-4\r\n2024,산업현장핵심기술수시개발,시범형기술개발,6,0,0,0,0,0,1,0\r\n2024,생산시스템산업전문기술개발,그린자동차부품실용화및실증연구,2,0,0,0,0,0,-5,2\r\n2024,생산시스템산업전문기술개발,청정생산기반전문기술,11,0,0,0,0,0,7,-2\r\n2024,섬유의류혁신역량강화사업(R&D),섬유의류혁신역량강화사업,5,0,0,0,0,0,4,-1\r\n2024,센서산업고도화전문기술개발사업,응용·상용화기술개발,10,0,0,0,0,0,6,-1\r\n2024,센서산업고도화전문기술개발사업,핵심기반기술개발,5,0,0,0,4,2,-1,-1\r\n2024,소방현장 탐색·진압 활동지원 센서 및 로봇 기술개발,[소방청] 소방현장 탐색·진압 활동지원 센서 및 로봇 기술개발,1,13,1,2,8,0,10,-2\r\n2024,소재부품글로벌투자연계기술개발(R&D),글로벌개방형기술개발,17,0,0,0,3,2,12,-1\r\n2024,소재부품글로벌투자연계기술개발(R&D),기술확보로드맵구축사업,1,0,0,0,0,0,-10,5\r\n2024,소재부품기술개발,소재부품이종기술융합형,253,717,108,34,305,88,12,-1\r\n2024,소재부품기술개발,소재부품패키지형,\"1,182\",\"5,352\",680,233,\"1,314\",356,14,-2\r\n2024,소재부품기술개발,핵심소재경쟁력강화,30,0,0,0,0,0,2,0\r\n2024,소재부품기업맞춤형기술개발사업,공공기술활용상용화기술개발,40,0,0,0,0,1,10,-1\r\n2024,소재부품산업기술개발기반구축(R&D),소부장통계구축,3,62,0,0,0,0,0,0\r\n2024,소재부품산업미래성장동력,웨어러블스마트디바이스용핵심부품요소기술개발,10,0,0,0,5,0,6,0\r\n2024,소재부품산업미래성장동력,차세대디스플레이기술개발,4,0,0,0,0,1,30,-1\r\n2024,소재부품산업전문기술개발사업,섬유생활스트림간협력,1,0,0,0,0,0,0,0\r\n2024,소재부품산업전문기술개발사업[일몰],물없는컬러산업육성,13,0,0,0,0,2,12,-2\r\n2024,소재부품산업전문기술개발사업[일몰],섬유패션제조혁신선도,4,0,0,0,0,0,34,-2\r\n2024,소재부품산업전문기술개발사업[일몰],해양융복합소재산업화사업,7,0,0,0,0,0,28,-3\r\n2024,소재부품장비혁신lab기술개발사업,소재부품장비혁신 lab기술개발사업,20,0,5,0,2,4,12,-2\r\n2024,소형무장헬기연계민수헬기핵심기술개발사업,헬기체계및구성품기술개발,3,0,0,0,0,0,8,-3\r\n2024,소형무장헬기연계민수헬기핵심기술개발사업,헬기핵심기술개발,1,0,0,0,0,0,27,-10\r\n2024,수소연료전지기반민군겸용탑재중량200kg급카고드론기술개발,수소연료전지기반민군겸용탑재중량200kg급카고드론기술개발,1,0,0,0,0,1,0,0\r\n2024,수소차용차세대연료전지시스템기술개발,수소차용차세대연료전지시스템기술개발,5,12,2,0,3,3,1,-1\r\n2024,수소트럭개조기술개발및실증,수소트럭개조기술개발및실증,4,0,2,0,5,0,-3,0\r\n2024,수소트럭전기동력부품국산화기술개발,수소트럭전기동력부품국산화기술개발,4,0,0,0,2,2,3,-1\r\n2024,수송분야비배기관미세먼지저감,수송분야비배기관미세먼지저감,4,0,8,1,0,1,9,-1\r\n2024,스마트계량측정기술기반조성사업,산업측정기술및요소부품연구개발,7,1,0,0,0,0,14,-1\r\n2024,스마트계량측정기술기반조성사업,스마트미터보급촉진을위한기술개발및기반조성,24,3,1,2,4,0,-1,0\r\n2024,스마트공장제조핵심기술개발사업,스마트공장제조핵심기술개발사업,12,0,0,0,1,0,-4,0\r\n2024,스마트공장협업패키지기술개발(R&D),고도화스마트공장협업기술개발,4,0,0,0,0,0,9,-2\r\n2024,스마트공장협업패키지기술개발(R&D),패키지R&D기술개발,8,0,0,0,0,0,11,-1\r\n2024,스마트캐빈기술개발,스마트캐빈기술개발,3,5,0,1,0,0,30,-3\r\n2024,시스템반도체설계지원센터,시스템반도체설계지원센터,1,0,0,0,0,0,0,0\r\n2024,시스템반도체핵심IP개발(R&D),시스템반도체핵심IP개발,30,11,9,11,15,16,9,-1\r\n2024,시스템산업미래성장동력,국민안전로봇프로젝트,1,0,0,0,0,0,15,-2\r\n2024,시스템산업미래성장동력,첨단공구산업기술고도화,4,0,0,0,0,0,13,-3\r\n2024,시험인증산업 경쟁력 및 신뢰성 제고,시험인증산업 현황파악 및 기초인력 양성,2,0,0,0,0,0,0,0\r\n2024,시험인증산업 경쟁력 및 신뢰성 제고,유망시험서비스 개발,21,11,0,1,0,0,8,-1\r\n2024,시험인증산업 경쟁력 및 신뢰성 제고,항바이러스 국제인증체계 수립을 위한 기반 구축,3,28,0,0,0,0,0,0\r\n2024,실감기반 첨단소방훈련체계 구축연구 사업,실감기반 첨단소방훈련체계 구축연구 사업,1,24,0,1,0,2,5,0\r\n2024,안전보호융복합섬유산업육성사업(R&D),안전보호융복합섬유산업육성사업,10,0,0,0,0,0,7,-2\r\n2024,안전인증역량강화,소비자제품안전기술기반조성,52,0,0,0,0,0,2,0\r\n2024,안전인증역량강화,차세대계량기술개발,19,0,0,0,0,0,8,-4\r\n2024,안전인증역량강화,화학물질안전관리기반확충,1,0,0,0,0,0,0,0\r\n2024,어린이제품안전성평가역량강화사업,어린이제품시험인프라구축,1,16,0,0,0,0,0,0\r\n2024,에너지효율향상을위한광소자시스템기술개발,에너지효율향상을위한광소자시스템기술개발,4,17,1,1,10,2,8,-2\r\n2024,엔지니어링핵심기술개발,엔지니어링핵심기술개발,9,0,3,0,0,0,22,-1\r\n2024,영상진단의료기기탑재용AI기반영상분석솔루션개발,영상진단의료기기탑재용AI기반영상분석솔루션개발,5,52,8,7,5,1,3,-1\r\n2024,우수기술연구센터(ATC)[일몰],우수기술연구센터(ATC),107,0,1,1,5,17,16,-1\r\n2024,우수기업연구소육성사업(ATC+),우수기업연구소육성사업(ATC+),183,374,56,34,189,67,14,-1\r\n2024,융복합신기술제품안전기술지원사업,제품안전기준및평가기법개발,73,0,0,1,0,0,3,0\r\n2024,융복합신기술제품안전기술지원사업,제품안전성향상기반조성,17,7,0,0,0,0,-2,0\r\n2024,이차전지소재부품시험평가센터구축,이차전지소재부품시험평가센터구축,1,0,0,0,0,0,-10,0\r\n2024,인공지능바이오로봇의료융합사업,인공지능바이오로봇의료융합,8,0,3,3,1,4,10,-2\r\n2024,자동차부품기업활력제고사업,자동차부품기업활력제고사업,68,0,0,0,0,3,6,-1\r\n2024,자동차산업기술개발,AI기반 자율주행 컴퓨팅 모듈 개발 및 서비스 실증(R&D),3,0,0,0,0,1,5,-1\r\n2024,자동차산업기술개발,가변플랫폼기반중소형전기버스트럭및운영시스템개발,6,0,0,0,1,1,20,-2\r\n2024,자동차산업기술개발,그린카,104,712,75,41,156,43,9,-1\r\n2024,자동차산업기술개발,대형버스용자율주행부품시스템개발및수소자율버스시범운행,3,0,0,0,0,0,12,-1\r\n2024,자동차산업기술개발,디지털전환가속화를위한자율배송모빌리티및커넥티비티플랫폼개발(R&D),4,89,1,3,12,4,4,-1\r\n2024,자동차산업기술개발,스마트카,57,379,8,20,77,11,9,-1\r\n2024,자동차산업기술개발,시장자립형3세대xEV산업육성사업,47,307,46,21,72,23,9,-1\r\n2024,자동차산업기술개발,자동차부품기업 재도약사업,40,0,0,0,0,1,6,-1\r\n2024,자동차산업기술개발,자율주행기술개발혁신사업,27,372,20,17,142,55,6,-1\r\n2024,자동차산업기술개발,중소중견기업지원을위한전기자동차개방형플랫폼,3,0,0,0,0,0,-8,0\r\n2024,자동차산업기술개발,초안전주행플랫폼핵심기술개발,5,59,5,4,25,2,8,-2\r\n2024,자동화굴착기실증사업,자동화굴착기실증사업,1,0,0,0,0,0,0,0\r\n2024,자율비행개인항공기기술개발사업,자율비행개인항공기기술개발사업,1,0,1,0,0,1,20,-2\r\n2024,자율셔틀인포테인먼트기술개발및서비스실증,자율셔틀 인포테인먼트 기술개발 및 서비스 실증,3,16,7,1,11,9,10,-1\r\n2024,재난 위험감지 및 모니터링 기술개발,재난감지 범위확대 융복합 센서개발,1,7,0,0,3,0,0,0\r\n2024,재난 위험감지 및 모니터링 기술개발,재난감지 활성화 저가형 센서개발,2,14,2,0,1,0,40,-3\r\n2024,재난안전 부처협력 기술개발,[행안부] 소방현장 탐색·진압 활동지원 로봇 기술개발,1,9,0,2,4,0,10,-2\r\n2024,재난안전 부처협력 기술개발,부처협력 사업지원,9,56,8,6,13,0,-1,0\r\n2024,재난안전 부처협력 기술개발,신종 감염병 대응체계 고도화 기술개발,1,0,0,0,0,0,0,0\r\n2024,재난현장긴급대응기술개발,구조구급 인명안전기술,3,7,0,1,4,2,3,-1\r\n2024,재난현장긴급대응기술개발,현장상황 통제기술,3,18,0,0,4,0,12,-1\r\n2024,재난현장긴급대응기술개발,화재진압 훈련체계기술,9,15,3,7,2,1,9,-1\r\n2024,전기차고출력배터리및충전시스템기술개발,전기차고출력배터리및충전시스템기술개발,4,46,15,0,20,4,15,-2\r\n2024,전기차플랫폼공용화기반수소차용비정형수소저장장치개발,전기차플랫폼공용화기반수소차용비정형수소저장장치개발,4,47,1,1,5,0,13,-2\r\n2024,전략제품 창출 글로벌 K-팹리스 육성 기술개발,글로벌스타팹리스30기술개발지원,16,33,1,0,37,26,13,-1\r\n2024,전략제품 창출 글로벌 K-팹리스 육성 기술개발,전략제품창출글로벌K-팹리스육성기술개발,4,0,0,0,3,5,22,-1\r\n2024,전략핵심소재자립화기술개발,전략핵심소재자립화기술개발,174,\"1,189\",249,60,310,140,16,-2\r\n2024,전자부품산업기술개발(R&D),OLED공정장비용핵심부품기술개발사업,12,0,0,0,0,0,5,0\r\n2024,전자부품산업기술개발(R&D),글로벌수요연계시스템반도체기술개발,25,0,0,0,0,4,7,-1\r\n2024,전자부품산업기술개발(R&D),디스플레이장비국산화를위한핵심부분품기술개발,14,29,1,0,12,0,5,-1\r\n2024,전자부품산업기술개발(R&D),디스플레이혁신공정플랫폼구축,64,258,149,15,141,65,17,-1\r\n2024,전자부품산업기술개발(R&D),메타버스를위한마이크로디스플레이기술개발,3,28,0,0,3,1,0,0\r\n2024,전자부품산업기술개발(R&D),스마트센싱유닛제품화실증기반구축,1,0,0,0,2,0,0,0\r\n2024,전자부품산업기술개발(R&D),시장선도형차세대센서기술개발,11,0,3,0,3,2,10,0\r\n2024,전자부품산업기술개발(R&D),신산업창출형파워반도체상용화기술개발사업,11,0,2,0,1,1,16,-2\r\n2024,전자부품산업기술개발(R&D),신시장창출형디스플레이기술개발및실증,5,68,1,1,5,1,-1,1\r\n2024,전자부품산업기술개발(R&D),융복합디스플레이,6,0,7,0,3,2,15,-2\r\n2024,전자부품산업기술개발(R&D),주력산업IT융합,39,50,10,3,19,3,9,-1\r\n2024,전자부품산업기술개발(R&D),차세대반도체개발,33,0,2,0,0,5,8,-1\r\n2024,전자부품산업기술개발(R&D),차세대시스템반도체설계소자공정기술개발,66,60,127,20,77,23,7,0\r\n2024,전자부품산업기술개발(R&D),초대형마이크로LED모듈러디스플레이핵심기술개발,6,70,12,2,26,17,18,-1\r\n2024,전자시스템산업기술개발사업,3D프린팅디지털전환기술개발,1,18,0,2,1,0,0,0\r\n2024,전자시스템산업기술개발사업,3D프린팅융합실증기술개발,6,50,0,2,11,3,9,-1\r\n2024,전자시스템산업기술개발사업,3D프린팅특화설계(DFAM)기반스마트제조기술개발,10,12,4,4,5,5,23,-2\r\n2024,전자시스템산업기술개발사업,5G연계증강현실기기·시스템기술개발,7,0,0,0,2,0,16,-2\r\n2024,전자시스템산업기술개발사업,DNA연계XR핵심부품및서비스기술개발,4,25,0,1,6,1,0,0\r\n2024,전자시스템산업기술개발사업,IoT가전기반스마트홈실증형기술개발사업(R&D),3,0,0,0,0,0,-8,1\r\n2024,전자시스템산업기술개발사업,IoT가전핵심부품기술개발,4,25,0,0,8,0,13,-1\r\n2024,전자시스템산업기술개발사업,광융합휴먼케어핵심기술개발,7,6,5,2,5,3,20,-1\r\n2024,전자시스템산업기술개발사업,레이저핵심부품국제공동개발,3,0,0,0,0,3,27,-2\r\n2024,전자시스템산업기술개발사업,장비연계형3D프린팅소재기술개발,1,0,0,0,0,0,0,0\r\n2024,전자시스템산업기술개발사업,제조혁신3D프린팅기술개발,9,0,0,0,2,2,23,-2\r\n2024,전자시스템산업기술개발사업,지능융합전자정보기기기술개발,7,0,0,0,0,0,4,0\r\n2024,전자시스템산업기술개발사업,차세대조선에너지부품3D프린팅제조공정연구개발,3,0,0,0,0,0,33,-1\r\n2024,전자시스템산업핵심기술개발사업,산업용광학계친환경제조기술개발지원,2,0,0,0,0,0,5,-1\r\n2024,전자시스템산업핵심기술개발사업,의료기기핵심기술개발,21,0,1,0,0,1,14,-3\r\n2024,전자시스템산업핵심기술개발사업,첨단의료기기개발지원,2,0,0,0,0,0,0,0\r\n2024,전자시스템산업핵심기술개발사업,첨단의료기기글로벌진출기술개발,2,0,0,0,0,0,25,-4\r\n2024,전자시스템산업핵심기술개발사업,초감각및생체결합디바이스개발,1,0,0,0,0,0,25,-3\r\n2024,전자정보디바이스산업원천기술개발사업,디스플레이(과기부),25,0,0,0,0,0,4,-1\r\n2024,전자정보디바이스산업원천기술개발사업,반도체(과기부),72,0,19,0,1,18,4,0\r\n2024,제조분야미세먼지감축을위한공정맞춤형실용화기술개발,제조분야미세먼지감축을위한공정맞춤형실용화기술개발,14,0,1,0,0,3,-2,0\r\n2024,제조분야온실가스미세먼지동시저감기술개발,제조분야온실가스-미세먼지동시저감기술개발사업,9,8,10,1,8,3,1,1\r\n2024,조선해양산업기술개발사업,자율운항선박기술개발,7,91,6,8,11,12,23,-3\r\n2024,조선해양산업기술개발사업,조선해양산업핵심기술개발,69,183,10,19,45,17,12,-1\r\n2024,조선해양산업기술개발사업,중견조선소혁신성장개발사업,9,0,0,0,1,1,22,-2\r\n2024,조선해양산업기술개발사업,친환경수소연료선박R&D플랫폼구축,4,0,0,0,0,1,18,-4\r\n2024,조선해양산업기술개발사업,해양플랜트스마트해체기술개발,1,0,0,0,0,2,20,-5\r\n2024,지능형스마트랩구축,스마트랩 인프라 및 개방형 플랫폼 구축,1,0,0,0,1,0,-4,1\r\n2024,지식서비스산업기술개발,서비스산업융합고도화,150,164,7,18,57,49,5,-1\r\n2024,지식서비스산업기술개발,서비스핵심기술개발,37,77,10,12,23,12,8,-1\r\n2024,지식서비스산업기술개발,파괴적혁신R&D설계기획,8,0,2,1,8,0,7,-1\r\n2024,지식서비스산업핵심기술개발(R&D),기반기술개발활성화,1,0,0,0,0,0,-30,1\r\n2024,지역맞춤형 재난안전 문제해결 기술개발 지원,지역특화형 재난안전 연구지원,32,51,15,22,9,9,6,-1\r\n2024,차세대중형항공기개발사업,핵심원천및시험평가기술개발,3,0,0,0,0,0,0,0\r\n2024,차세대지능형반도체기술개발(설계·제조)(R&D),반도체제조공정정비,44,233,15,6,99,44,12,-2\r\n2024,차세대지능형반도체기술개발(설계·제조)(R&D),시스템반도체상용화설계,54,282,9,6,76,74,15,-2\r\n2024,차세대하이브리드PCB기술개발(R&D),차세대하이브리드PCB기술개발,5,0,0,0,1,4,12,-2\r\n2024,창의산업전문기술개발,두뇌역량우수전문기업기술개발,2,0,0,0,0,0,15,-2\r\n2024,창의산업전문기술개발,소비재산업고도화,4,0,0,0,0,0,21,-2\r\n2024,철강산업재도약기술개발,고부가가치화기술개발,14,84,10,3,12,5,21,-2\r\n2024,철강산업재도약기술개발,산업공유자산,4,26,0,0,1,0,0,-1\r\n2024,철강산업재도약기술개발,친환경자원순환기술개발,4,20,0,3,7,6,20,-4\r\n2024,청정생산기반산업공생기술개발사업,개별사업장공정기술시스템개발,1,0,0,0,0,0,30,-2\r\n2024,청정생산기반산업공생기술개발사업,기업간연계기술시스템개발,3,0,0,0,1,1,0,0\r\n2024,청정생산기반산업공생기술개발사업,클린팩토리기술개발,13,0,0,1,2,4,7,-2\r\n2024,청정생산기반산업공생기술개발사업,패쇄순환그리드기술개발,1,0,0,0,0,0,0,0\r\n2024,초절전LED융합기술개발,초절전LED융합기술개발,9,0,0,0,4,3,2,0\r\n2024,클라우드기반디지털엔지니어링통합빅데이터구축(R&D),디지털엔지니어링혁신기반구축,1,0,0,0,0,0,0,0\r\n2024,탄소산업기반조성,고부가가치인조흑연소재기술개발사업,7,0,2,1,1,2,9,-4\r\n2024,탄소산업기반조성,반도체이차전지부품용인조흑연테스트베드구축,1,17,0,0,0,0,13,-5\r\n2024,탄소산업기반조성,산업용특수활성탄소소재부품자립화기술개발,4,33,13,4,13,3,13,-2\r\n2024,탄소산업기반조성,탄소복합재신뢰성평가기반구축사업,1,0,0,0,0,0,10,-2\r\n2024,탄소산업기반조성,탄소산업클러스터조성사업,14,0,1,0,0,0,10,-2\r\n2024,탄소산업기반조성,탄소소재자립화기술개발,3,17,3,0,6,2,27,-4\r\n2024,탄소혁신스타즈프로젝트,탄소혁신스타즈프로젝트,15,34,2,15,21,5,20,-2\r\n2024,포스트게놈다부처유전체사업,포스트게놈다부처유전체사업,11,0,1,0,9,1,6,-1\r\n2024,항공기구조물국제공동개발,항공기구조물국제공동개발,1,0,0,0,0,0,14,-3\r\n2024,항공용경량소재국산화를위한소재데이터시험개발,항공용경량소재국산화를위한소재데이터시험개발,4,44,0,0,1,0,11,-2\r\n2024,항공우주부품기술개발,무인기계/전자융합시스템개발,7,0,0,0,0,0,3,-1\r\n2024,항공우주부품기술개발,수출유망부품및핵심기술개발,28,0,3,4,1,1,14,-3\r\n2024,해양경찰현장맞춤형연구개발(오션랩),구조역량 및 대민서비스 향상,4,0,0,0,0,0,6,-1\r\n2024,해양경찰현장맞춤형연구개발(오션랩),불법외국어선 단속강화,4,0,0,0,0,0,3,0\r\n2024,해외인증지원시험인프라구축,해외인증지원시험인프라구축,1,15,0,0,0,0,0,0\r\n2024,혁신성장동력프로젝트(산업부),경량소재,4,0,2,0,4,4,8,-1\r\n2024,현장수요반영의료기기고도화기술개발,현장수요반영의료기기고도화기술개발,15,0,11,2,7,23,11,-2\r\n"},{"id":"other_org","name":"가상 기관 (범용성 시연)","profile":"sample_other_org","file":"input_other_org.csv","text":"﻿연도,사업구분,과제군,과제 수,연구비(백만원),논문(편),특허 등록(건),기술이전(건)\r\n2023,소재부품 원천기술,반도체소재,7,596,9,5,0\r\n2023,소재부품 원천기술,이차전지,10,\"1,179\",3,12,5\r\n2023,소재부품 원천기술,디스플레이,3,0,0,0,0\r\n2023,소재부품 원천기술,센서,4,\"2,016\",33,34,1\r\n2023,바이오 사업화,진단키트,11,0,0,0,0\r\n2023,바이오 사업화,의료기기,14,\"2,207\",16,9,10\r\n2023,바이오 사업화,신약후보,3,\"3,884\",52,59,1\r\n2023,바이오 사업화,디지털치료,10,\"3,401\",43,81,1\r\n2023,제조 혁신,스마트공장,10,\"1,585\",16,19,7\r\n2023,제조 혁신,로봇,3,\"2,241\",4,40,4\r\n2023,제조 혁신,공정자동화,11,\"3,235\",33,76,6\r\n2023,제조 혁신,에너지효율,11,779,17,7,4\r\n2024,소재부품 원천기술,반도체소재,9,630,15,13,1\r\n2024,소재부품 원천기술,이차전지,8,0,0,0,0\r\n2024,소재부품 원천기술,디스플레이,9,\"3,704\",46,34,12\r\n2024,소재부품 원천기술,센서,4,\"2,829\",62,32,14\r\n2024,바이오 사업화,진단키트,12,0,0,0,0\r\n2024,바이오 사업화,의료기기,5,0,0,0,0\r\n2024,바이오 사업화,신약후보,7,588,2,3,1\r\n2024,바이오 사업화,디지털치료,7,772,11,1,0\r\n2024,제조 혁신,스마트공장,7,\"3,694\",2,87,11\r\n2024,제조 혁신,로봇,4,\"2,524\",74,54,10\r\n2024,제조 혁신,공정자동화,6,\"2,423\",38,47,4\r\n2024,제조 혁신,에너지효율,5,\"1,099\",7,11,5\r\n"}]};
+
+</script>
+<script>
+/* core.js - 계산 코어. 브라우저와 Node(테스트)에서 동일하게 사용한다.
+ * 서버·외부 API·AI 없음. 모든 계산은 규칙 기반이며 프로필(JSON)이 기준을 정한다. */
+(function (root, factory) {
+  if (typeof module === 'object' && module.exports) module.exports = factory();
+  else root.Core = factory();
+})(typeof self !== 'undefined' ? self : this, function () {
+  'use strict';
+
+  /* ---------- 입력 해석 ---------- */
+
+  // ArrayBuffer -> 문자열. UTF-8 우선, 깨지면 CP949(EUC-KR)로 다시 읽는다.
+  function decodeBuffer(buf) {
+    var bytes = new Uint8Array(buf);
+    try {
+      return new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+    } catch (e) {
+      return new TextDecoder('euc-kr').decode(bytes);
+    }
+  }
+
+  // 따옴표·쉼표·줄바꿈을 처리하는 CSV 파서. 반환: 2차원 문자열 배열.
+  function parseCSV(text) {
+    if (text.charCodeAt(0) === 0xfeff) text = text.slice(1);
+    var rows = [], row = [], cell = '', q = false, i = 0, n = text.length;
+    while (i < n) {
+      var c = text[i];
+      if (q) {
+        if (c === '"') {
+          if (text[i + 1] === '"') { cell += '"'; i += 2; continue; }
+          q = false; i++; continue;
+        }
+        cell += c; i++; continue;
+      }
+      if (c === '"') { q = true; i++; continue; }
+      if (c === ',') { row.push(cell); cell = ''; i++; continue; }
+      if (c === '\r') { i++; continue; }
+      if (c === '\n') { row.push(cell); rows.push(row); row = []; cell = ''; i++; continue; }
+      cell += c; i++;
+    }
+    if (cell !== '' || row.length) { row.push(cell); rows.push(row); }
+    return rows.filter(function (r) { return !(r.length === 1 && r[0].trim() === ''); });
+  }
+
+  // 탭 구분(엑셀에서 복사·붙여넣기)도 허용한다.
+  function parseTable(text) {
+    var firstLine = text.split('\n')[0] || '';
+    if (firstLine.indexOf('\t') >= 0 && firstLine.indexOf(',') < 0) {
+      return text.split(/\r?\n/).filter(function (l) { return l.trim() !== ''; })
+        .map(function (l) { return l.split('\t'); });
+    }
+    return parseCSV(text);
+  }
+
+  // "1,182" -> 1182. 빈 칸은 null, 숫자가 아니면 NaN.
+  function toNum(s) {
+    if (s === undefined || s === null) return null;
+    var t = String(s).replace(/[,\s]/g, '');
+    if (t === '' || t === '-') return null;
+    var v = Number(t);
+    return isFinite(v) ? v : NaN;
+  }
+
+  /* ---------- 통계 보조 ---------- */
+
+  // 선형보간 분위수(exclusive 방식: 위치 = p*(n+1)). 파이썬 statistics.quantiles 기본값과 같다.
+  function quantile(values, p) {
+    var s = values.slice().sort(function (a, b) { return a - b; });
+    var n = s.length;
+    if (!n) return NaN;
+    var pos = p * (n + 1);
+    if (pos <= 1) return s[0];
+    if (pos >= n) return s[n - 1];
+    var lo = Math.floor(pos), f = pos - lo;
+    return s[lo - 1] + f * (s[lo] - s[lo - 1]);
+  }
+
+  function gini(values) {
+    var v = values.slice().sort(function (a, b) { return a - b; });
+    var n = v.length, sum = 0, c = 0;
+    for (var i = 0; i < n; i++) { sum += v[i]; c += (i + 1) * v[i]; }
+    if (!n || sum === 0) return null;
+    return 2 * c / (n * sum) - (n + 1) / n;
+  }
+
+  function sum(arr) { var t = 0; for (var i = 0; i < arr.length; i++) t += arr[i]; return t; }
+
+  /* ---------- 프로필 ---------- */
+
+  function asArray(x) { return x == null ? [] : Array.isArray(x) ? x : [x]; }
+
+  function profileColumns(profile) {
+    var c = profile.columns;
+    var all = [].concat(asArray(c.year), asArray(c.group), asArray(c.label), asArray(c.count),
+      asArray(c.input), asArray(c.paper), asArray(c.patent), asArray(c.aux));
+    return all.filter(function (x, i) { return x && all.indexOf(x) === i; });
+  }
+
+  // 헤더와 가장 잘 맞는 프로필을 고른다. 반환: [{profile, matched, total, score}] 점수 내림차순.
+  function suggestProfiles(headers, profiles) {
+    var h = headers.map(function (x) { return x.trim(); });
+    return profiles.map(function (p) {
+      var cols = profileColumns(p);
+      var matched = cols.filter(function (c) { return h.indexOf(c) >= 0; }).length;
+      return { profile: p, matched: matched, total: cols.length, score: cols.length ? matched / cols.length : 0 };
+    }).sort(function (a, b) { return b.score - a.score; });
+  }
+
+  var DEFAULT_TH = { typePaper: 0.65, typePatent: 0.35, flagInputTop: 0.25, flagDensityBottom: 0.40, concentrationTop: 0.10 };
+
+  /* ---------- 본 계산 ---------- */
+
+  // table: parseTable 결과(첫 행=헤더). 반환: {ok:false, errors} 또는 {ok:true, ...결과}
+  function analyze(table, profile, opts) {
+    opts = opts || {};
+    var th = Object.assign({}, DEFAULT_TH, profile.thresholds || {}, opts.thresholds || {});
+    var units = Object.assign({ input: '', densityPer: 10, densityLabel: '투입 단위당' }, profile.units || {});
+    var C = profile.columns;
+    var header = table[0].map(function (x) { return x.trim(); });
+    var idx = {};
+    header.forEach(function (h, i) { idx[h] = i; });
+
+    var needed = [].concat(asArray(C.count), asArray(C.input), asArray(C.paper), asArray(C.patent), asArray(C.label));
+    var missing = needed.filter(function (c) { return c && !(c in idx); });
+    if (!asArray(C.input).length) return { ok: false, errors: ['프로필에 투입(input) 컬럼이 지정되어 있지 않습니다.'] };
+    if (missing.length) {
+      return { ok: false, errors: ['입력 자료에 없는 컬럼: ' + missing.join(', ')], missing: missing, header: header };
+    }
+    var optional = [].concat(asArray(C.year), asArray(C.group), asArray(C.aux)).filter(function (c) { return c && (c in idx); });
+
+    var inputCol = asArray(C.input)[0];
+    var paperCols = asArray(C.paper), patentCols = asArray(C.patent);
+    var countCol = asArray(C.count)[0] || null;
+    var labelCols = asArray(C.label);
+    var groupCol = C.group && (C.group in idx) ? C.group : null;
+    var yearCol = C.year && (C.year in idx) ? C.year : null;
+    var auxCols = asArray(C.aux).filter(function (c) { return c in idx; });
+    var numCols = [].concat(countCol ? [countCol] : [], [inputCol], paperCols, patentCols, auxCols);
+
+    var badCells = 0;
+    var rows = table.slice(1).map(function (r, k) {
+      var o = { _no: k + 1, label: labelCols.map(function (c) { return (r[idx[c]] || '').trim(); }).join(' / '),
+        group: groupCol ? (r[idx[groupCol]] || '').trim() : '', year: yearCol ? (r[idx[yearCol]] || '').trim() : '', v: {} };
+      numCols.forEach(function (c) {
+        var x = toNum(r[idx[c]]);
+        if (x !== null && isNaN(x)) { badCells++; x = null; }
+        o.v[c] = x;
+      });
+      o.input = o.v[inputCol] || 0;
+      o.count = countCol ? (o.v[countCol] || 0) : 0;
+      o.paper = sum(paperCols.map(function (c) { return o.v[c] || 0; }));
+      o.patent = sum(patentCols.map(function (c) { return o.v[c] || 0; }));
+      return o;
+    });
+
+    var hasPaper = paperCols.length > 0, hasPatent = patentCols.length > 0, hasBoth = hasPaper && hasPatent;
+    var per = units.densityPer;
+
+    var analyzable = rows.filter(function (r) { return r.input > 0; });
+    var excluded = rows.filter(function (r) { return !(r.input > 0); });
+
+    analyzable.forEach(function (r) {
+      r.avgInput = countCol && r.count > 0 ? r.input / r.count : null;
+      r.paperDensity = hasPaper ? r.paper / r.input * per : null;
+      r.patentDensity = hasPatent ? r.patent / r.input * per : null;
+      r.comp = (hasPaper || hasPatent) ? (r.paper + r.patent) / r.input * per : null;
+      r.paperShare = null; r.type = null;
+      if (hasBoth) {
+        var t = r.paper + r.patent;
+        if (t === 0) r.type = '성과 없음';
+        else {
+          r.paperShare = r.paper / t;
+          r.type = r.paperShare >= th.typePaper ? '논문형' : r.paperShare <= th.typePatent ? '특허형' : '균형형';
+        }
+      }
+      r.flag = false;
+    });
+
+    // 점검 후보: 투입 상위 N% 이면서 복합 밀도 하위 M% (유형과 독립)
+    var cut = { inputHi: null, densityLo: null };
+    if (analyzable.length && (hasPaper || hasPatent)) {
+      cut.inputHi = quantile(analyzable.map(function (r) { return r.input; }), 1 - th.flagInputTop);
+      cut.densityLo = quantile(analyzable.map(function (r) { return r.comp; }), th.flagDensityBottom);
+      analyzable.forEach(function (r) { r.flag = r.input >= cut.inputHi && r.comp <= cut.densityLo; });
+    }
+    var flagged = analyzable.filter(function (r) { return r.flag; }).sort(function (a, b) { return b.input - a.input; });
+
+    // 유형 분포
+    var typeNames = ['논문형', '균형형', '특허형', '성과 없음'];
+    var typeCount = null;
+    if (hasBoth) {
+      typeCount = {};
+      typeNames.forEach(function (t) { typeCount[t] = 0; });
+      analyzable.forEach(function (r) { typeCount[r.type]++; });
+    }
+
+    // 집중도
+    var conc = null;
+    if (analyzable.length) {
+      var sorted = analyzable.slice().sort(function (a, b) { return b.input - a.input; });
+      var k = Math.max(1, Math.round(analyzable.length * th.concentrationTop));
+      var top = sorted.slice(0, k);
+      var totIn = sum(sorted.map(function (r) { return r.input; }));
+      var curve = [], acc = 0;
+      sorted.forEach(function (r, i) { acc += r.input; curve.push([(i + 1) / sorted.length, acc / totIn]); });
+      conc = {
+        k: k, topShareInput: sum(top.map(function (r) { return r.input; })) / totIn,
+        topSharePaper: hasPaper && sum(sorted.map(function (r) { return r.paper; })) > 0 ? sum(top.map(function (r) { return r.paper; })) / sum(sorted.map(function (r) { return r.paper; })) : null,
+        topSharePatent: hasPatent && sum(sorted.map(function (r) { return r.patent; })) > 0 ? sum(top.map(function (r) { return r.patent; })) / sum(sorted.map(function (r) { return r.patent; })) : null,
+        giniInput: gini(sorted.map(function (r) { return r.input; })),
+        giniPatent: hasPatent ? gini(sorted.map(function (r) { return r.patent; })) : null,
+        curve: curve
+      };
+    }
+
+    // 집계표(그룹별)
+    var groups = null;
+    if (groupCol) {
+      var gm = {}, order = [];
+      rows.forEach(function (r) {
+        var g = r.group || '(미지정)';
+        if (!gm[g]) { gm[g] = { group: g, rows: 0, count: 0, input: 0, paper: 0, patent: 0 }; order.push(g); }
+        var o = gm[g]; o.rows++; o.count += r.count; o.input += r.input; o.paper += r.paper; o.patent += r.patent;
+      });
+      groups = order.map(function (g) {
+        var o = gm[g];
+        o.paperDensity = hasPaper && o.input > 0 ? o.paper / o.input * per : null;
+        o.patentDensity = hasPatent && o.input > 0 ? o.patent / o.input * per : null;
+        o.comp = (hasPaper || hasPatent) && o.input > 0 ? (o.paper + o.patent) / o.input * per : null;
+        return o;
+      }).sort(function (a, b) { return b.input - a.input || (a.group < b.group ? -1 : 1); });
+    }
+
+    // 연도 추이: 연도가 2개 이상일 때만
+    var years = null;
+    if (yearCol) {
+      var ys = {};
+      rows.forEach(function (r) {
+        if (!ys[r.year]) ys[r.year] = { year: r.year, rows: 0, input: 0, paper: 0, patent: 0 };
+        var o = ys[r.year]; o.rows++; o.input += r.input; o.paper += r.paper; o.patent += r.patent;
+      });
+      var keys = Object.keys(ys).sort();
+      if (keys.length >= 2) {
+        years = keys.map(function (y) {
+          var o = ys[y];
+          o.comp = (hasPaper || hasPatent) && o.input > 0 ? (o.paper + o.patent) / o.input * per : null;
+          return o;
+        });
+      }
+    }
+
+    // 검산: 원본 합계 = 분석 대상 + 제외, 집계표 합계 = 원본 합계
+    var checks = [];
+    function addCheck(name, col, key) {
+      var src = sum(rows.map(function (r) { return r.v[col] || 0; }));
+      var a = sum(analyzable.map(function (r) { return r.v[col] || 0; }));
+      var e = sum(excluded.map(function (r) { return r.v[col] || 0; }));
+      var g = groups && key ? sum(groups.map(function (o) { return o[key]; })) : null;
+      checks.push({ item: name, source: src, analyzable: a, excluded: e, groupTotal: key ? g : null,
+        ok: Math.abs(src - (a + e)) < 1e-9 && (g === null || Math.abs(g - src) < 1e-9) });
+    }
+    if (countCol) addCheck(countCol, countCol, 'count');
+    addCheck(inputCol, inputCol, 'input');
+    paperCols.forEach(function (c) { addCheck(c, c, null); });
+    patentCols.forEach(function (c) { addCheck(c, c, null); });
+    if (groups && hasPaper) {
+      var s = sum(rows.map(function (r) { return r.paper; }));
+      checks.push({ item: '논문 합계(' + paperCols.length + '개 컬럼)', source: s, analyzable: sum(analyzable.map(function (r) { return r.paper; })),
+        excluded: sum(excluded.map(function (r) { return r.paper; })), groupTotal: sum(groups.map(function (o) { return o.paper; })),
+        ok: Math.abs(s - sum(groups.map(function (o) { return o.paper; }))) < 1e-9 });
+    }
+    if (groups && hasPatent) {
+      var s2 = sum(rows.map(function (r) { return r.patent; }));
+      checks.push({ item: '특허 합계(' + patentCols.length + '개 컬럼)', source: s2, analyzable: sum(analyzable.map(function (r) { return r.patent; })),
+        excluded: sum(excluded.map(function (r) { return r.patent; })), groupTotal: sum(groups.map(function (o) { return o.patent; })),
+        ok: Math.abs(s2 - sum(groups.map(function (o) { return o.patent; }))) < 1e-9 });
+    }
+
+    // 이중 집계 경고: 같은 (연도, 그룹, 라벨) 조합이 두 번 이상 나오면 합계가 부풀 수 있다.
+    var seen = {}, dups = 0;
+    rows.forEach(function (r) {
+      var key = r.year + '|' + r.group + '|' + r.label;
+      if (seen[key]) dups++; else seen[key] = 1;
+    });
+
+    var excludedWithOutput = excluded.filter(function (r) { return r.paper + r.patent > 0; });
+    var tot = {
+      rows: rows.length, analyzable: analyzable.length, excluded: excluded.length,
+      excludedWithOutput: excludedWithOutput.length,
+      count: sum(rows.map(function (r) { return r.count; })),
+      input: sum(rows.map(function (r) { return r.input; })),
+      paper: sum(rows.map(function (r) { return r.paper; })),
+      patent: sum(rows.map(function (r) { return r.patent; })),
+      excludedPaper: sum(excluded.map(function (r) { return r.paper; })),
+      excludedPatent: sum(excluded.map(function (r) { return r.patent; })),
+      excludedCount: sum(excluded.map(function (r) { return r.count; })),
+      analyzableCount: sum(analyzable.map(function (r) { return r.count; })),
+      analyzableInput: sum(analyzable.map(function (r) { return r.input; })),
+      analyzablePaper: sum(analyzable.map(function (r) { return r.paper; })),
+      analyzablePatent: sum(analyzable.map(function (r) { return r.patent; }))
+    };
+    tot.avgInput = countCol && tot.analyzableCount > 0 ? tot.analyzableInput / tot.analyzableCount : null;
+    tot.comp = (hasPaper || hasPatent) && tot.analyzableInput > 0 ? (tot.analyzablePaper + tot.analyzablePatent) / tot.analyzableInput * per : null;
+
+    return {
+      ok: true, profile: profile, thresholds: th, units: units,
+      flags: { hasPaper: hasPaper, hasPatent: hasPatent, hasBoth: hasBoth, hasCount: !!countCol, hasGroup: !!groupCol },
+      cols: { input: inputCol, count: countCol, paper: paperCols, patent: patentCols, aux: auxCols, group: groupCol, year: yearCol },
+      rows: rows, analyzable: analyzable, excluded: excluded, excludedWithOutput: excludedWithOutput,
+      cut: cut, flagged: flagged, typeCount: typeCount, conc: conc, groups: groups, years: years,
+      checks: checks, dups: dups, badCells: badCells, totals: tot,
+      allOk: checks.every(function (c) { return c.ok; }) && badCells === 0,
+      disabled: [].concat(
+        hasPaper ? [] : ['논문 지표(논문 컬럼 없음)'],
+        hasPatent ? [] : ['특허 지표(특허 컬럼 없음)'],
+        hasBoth ? [] : ['성과 유형 분류(논문·특허 컬럼이 모두 필요)'],
+        countCol ? [] : ['과제당 평균 투입(과제 수 컬럼 없음)'],
+        groupCol ? [] : ['그룹별 집계표(그룹 컬럼 없음)'],
+        years ? [] : ['연도 추이(연도 값이 2개 미만)'])
+    };
+  }
+
+  /* ---------- 내보내기 ---------- */
+
+  function r4(x) { return x === null || x === undefined ? '' : String(Math.round(x * 1e4) / 1e4); }
+  function pct(x, d) { return x === null || x === undefined ? '-' : (x * 100).toFixed(d === undefined ? 1 : d) + '%'; }
+  function num(x) { return x === null || x === undefined ? '-' : Number(x).toLocaleString('en-US', { maximumFractionDigits: 2 }); }
+  function csvCell(v) {
+    var s = v === null || v === undefined ? '' : String(v);
+    return /[",\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+  }
+  function toCSV(header, lines) {
+    return '﻿' + [header].concat(lines).map(function (r) { return r.map(csvCell).join(','); }).join('\r\n') + '\r\n';
+  }
+  function mdCell(s) { return String(s).replace(/\|/g, '\\|'); }
+
+  function buildOutputs(R, meta) {
+    meta = meta || {};
+    var f = R.flags, cols = R.cols, per = R.units.densityLabel;
+    var files = {};
+
+    // metrics.csv
+    var mh = ['연도', '그룹', '항목', '과제수', '투입(' + R.units.input + ')'];
+    if (f.hasPaper) mh.push('논문');
+    if (f.hasPatent) mh.push('특허');
+    mh.push('과제당 평균 투입');
+    if (f.hasPaper) mh.push('논문 밀도');
+    if (f.hasPatent) mh.push('특허 밀도');
+    if (f.hasPaper || f.hasPatent) mh.push('복합 밀도');
+    if (f.hasBoth) { mh.push('논문 비중'); mh.push('유형'); }
+    mh.push('점검 후보');
+    files['metrics.csv'] = toCSV(mh, R.analyzable.map(function (r) {
+      var x = [r.year, r.group, r.label, r.count, r.input];
+      if (f.hasPaper) x.push(r.paper);
+      if (f.hasPatent) x.push(r.patent);
+      x.push(r4(r.avgInput));
+      if (f.hasPaper) x.push(r4(r.paperDensity));
+      if (f.hasPatent) x.push(r4(r.patentDensity));
+      if (f.hasPaper || f.hasPatent) x.push(r4(r.comp));
+      if (f.hasBoth) { x.push(r4(r.paperShare)); x.push(r.type); }
+      x.push(r.flag ? 'Y' : '');
+      return x;
+    }));
+
+    // flags.csv
+    var fh = ['연도', '그룹', '항목', '과제수', '투입(' + R.units.input + ')'];
+    if (f.hasPaper) fh.push('논문');
+    if (f.hasPatent) fh.push('특허');
+    fh.push('복합 밀도');
+    files['flags.csv'] = toCSV(fh, R.flagged.map(function (r) {
+      var x = [r.year, r.group, r.label, r.count, r.input];
+      if (f.hasPaper) x.push(r.paper);
+      if (f.hasPatent) x.push(r.patent);
+      x.push(r4(r.comp));
+      return x;
+    }));
+
+    // excluded
+    var eh = ['연도', '그룹', '항목', '과제수', '투입(' + R.units.input + ')'];
+    if (f.hasPaper) eh.push('논문');
+    if (f.hasPatent) eh.push('특허');
+    files['excluded_zero_funding.csv'] = toCSV(eh, R.excluded.map(function (r) {
+      var x = [r.year, r.group, r.label, r.count, r.input];
+      if (f.hasPaper) x.push(r.paper);
+      if (f.hasPatent) x.push(r.patent);
+      return x;
+    }));
+
+    // groups.csv
+    if (R.groups) {
+      var gh = ['그룹', '행 수', '과제수', '투입(' + R.units.input + ')'];
+      if (f.hasPaper) gh.push('논문');
+      if (f.hasPatent) gh.push('특허');
+      if (f.hasPaper) gh.push('논문 밀도');
+      if (f.hasPatent) gh.push('특허 밀도');
+      if (f.hasPaper || f.hasPatent) gh.push('복합 밀도');
+      files['groups.csv'] = toCSV(gh, R.groups.map(function (o) {
+        var x = [o.group, o.rows, o.count, o.input];
+        if (f.hasPaper) x.push(o.paper);
+        if (f.hasPatent) x.push(o.patent);
+        if (f.hasPaper) x.push(r4(o.paperDensity));
+        if (f.hasPatent) x.push(r4(o.patentDensity));
+        if (f.hasPaper || f.hasPatent) x.push(r4(o.comp));
+        return x;
+      }));
+    }
+
+    // check.csv
+    files['check.csv'] = toCSV(['검산 항목', '원본 합계', '분석 대상 합계', '제외 합계', '집계표 합계', '결과'],
+      R.checks.map(function (c) { return [c.item, c.source, c.analyzable, c.excluded, c.groupTotal === null ? '' : c.groupTotal, c.ok ? '일치' : '불일치']; }));
+
+    // run_meta.json (결정적 출력을 위해 시각은 meta로 받을 때만 기록)
+    var rm = {
+      tool: 'rnd-profiler', profile: R.profile.id, profile_name: R.profile.name,
+      input_file: meta.inputName || null, rows: R.totals.rows, analyzable_rows: R.totals.analyzable, excluded_rows: R.totals.excluded,
+      thresholds: R.thresholds, cutoffs: { input_ge: R.cut.inputHi, density_le: R.cut.densityLo },
+      all_checks_ok: R.allOk, disabled_features: R.disabled
+    };
+    if (meta.generatedAt) rm.generated_at = meta.generatedAt;
+    files['run_meta.json'] = JSON.stringify(rm, null, 2) + '\n';
+
+    files['summary.md'] = buildSummary(R, meta);
+    return files;
+  }
+
+  function buildSummary(R, meta) {
+    var f = R.flags, t = R.totals, u = R.units.input, L = [];
+    L.push('# R&D 성과구조 진단 요약');
+    L.push('');
+    L.push('- 프로필: ' + R.profile.name + ' (`' + R.profile.id + '`)');
+    if (meta.inputName) L.push('- 입력 파일: ' + meta.inputName);
+    L.push('- 성격: 탐색적 선별 자료이며 순위·평가가 아닙니다. 아래 한계 항목을 함께 읽어야 합니다.');
+    L.push('');
+    L.push('## 1. 검산');
+    L.push('');
+    L.push('| 항목 | 원본 합계 | 분석 대상 | 제외 | 집계표 | 결과 |');
+    L.push('|---|---:|---:|---:|---:|---|');
+    R.checks.forEach(function (c) {
+      L.push('| ' + mdCell(c.item) + ' | ' + num(c.source) + ' | ' + num(c.analyzable) + ' | ' + num(c.excluded) + ' | ' + (c.groupTotal === null ? '-' : num(c.groupTotal)) + ' | ' + (c.ok ? '일치' : '**불일치**') + ' |');
+    });
+    L.push('');
+    L.push('- 전체 ' + t.rows + '행 중 분석 대상 ' + t.analyzable + '행, 투입 0 또는 빈 칸으로 제외 ' + t.excluded + '행(이 중 성과가 있는 행 ' + t.excludedWithOutput + '행).');
+    L.push('- 이중 집계 의심(같은 연도·그룹·항목 중복): ' + R.dups + '건. 숫자로 읽히지 않은 칸: ' + R.badCells + '개.');
+    L.push('');
+    L.push('## 2. 규모');
+    L.push('');
+    L.push('- 분석 대상 투입 합계: ' + num(t.analyzableInput) + u + (f.hasCount ? ', 과제 ' + num(t.analyzableCount) + '건, 과제당 평균 ' + num(t.avgInput) + u : ''));
+    if (f.hasPaper) L.push('- 논문 합계(분석 대상): ' + num(t.analyzablePaper) + '건');
+    if (f.hasPatent) L.push('- 특허 합계(분석 대상): ' + num(t.analyzablePatent) + '건');
+    if (t.comp !== null) L.push('- 전체 복합 밀도: ' + R.units.densityLabel + ' ' + num(t.comp) + '건');
+    L.push('');
+    if (R.typeCount) {
+      L.push('## 3. 성과 유형 분포');
+      L.push('');
+      L.push('논문 비중 ≥ ' + pct(R.thresholds.typePaper, 0) + ' 논문형, ≤ ' + pct(R.thresholds.typePatent, 0) + ' 특허형, 그 사이 균형형.');
+      L.push('');
+      L.push('| 유형 | 행 수 | 비율 |');
+      L.push('|---|---:|---:|');
+      Object.keys(R.typeCount).forEach(function (k) {
+        L.push('| ' + k + ' | ' + R.typeCount[k] + ' | ' + pct(R.typeCount[k] / t.analyzable) + ' |');
+      });
+      L.push('');
+    }
+    if (R.conc) {
+      L.push('## 4. 집중도');
+      L.push('');
+      L.push('- 투입 상위 ' + pct(R.thresholds.concentrationTop, 0) + '(' + R.conc.k + '행)의 투입 비중: ' + pct(R.conc.topShareInput));
+      if (R.conc.topSharePaper !== null) L.push('- 같은 행들의 논문 비중: ' + pct(R.conc.topSharePaper));
+      if (R.conc.topSharePatent !== null) L.push('- 같은 행들의 특허 비중: ' + pct(R.conc.topSharePatent));
+      L.push('- 지니계수(투입): ' + (R.conc.giniInput === null ? '-' : R.conc.giniInput.toFixed(3)) + (R.conc.giniPatent !== null ? ', (특허): ' + R.conc.giniPatent.toFixed(3) : ''));
+      L.push('');
+    }
+    if (R.cut.inputHi !== null) {
+      L.push('## 5. 점검 후보');
+      L.push('');
+      L.push('기준: 투입 상위 ' + pct(R.thresholds.flagInputTop, 0) + '(≥ ' + num(R.cut.inputHi) + u + ') 이면서 복합 밀도 하위 ' + pct(R.thresholds.flagDensityBottom, 0) + '(≤ ' + num(R.cut.densityLo) + '). 부실 판정이 아니라 추가 확인 대상입니다.');
+      L.push('');
+      if (R.flagged.length) {
+        L.push('| 그룹 | 항목 | 투입(' + u + ') | 논문 | 특허 | 복합 밀도 |');
+        L.push('|---|---|---:|---:|---:|---:|');
+        R.flagged.forEach(function (r) {
+          L.push('| ' + mdCell(r.group) + ' | ' + mdCell(r.label) + ' | ' + num(r.input) + ' | ' + num(r.paper) + ' | ' + num(r.patent) + ' | ' + num(r.comp) + ' |');
+        });
+      } else L.push('해당 행 없음.');
+      L.push('');
+    }
+    if (R.years) {
+      L.push('## 6. 연도 추이');
+      L.push('');
+      L.push('| 연도 | 행 수 | 투입(' + u + ') | 논문 | 특허 | 복합 밀도 |');
+      L.push('|---|---:|---:|---:|---:|---:|');
+      R.years.forEach(function (y) { L.push('| ' + y.year + ' | ' + y.rows + ' | ' + num(y.input) + ' | ' + num(y.paper) + ' | ' + num(y.patent) + ' | ' + num(y.comp) + ' |'); });
+      L.push('');
+    }
+    if (R.disabled.length) { L.push('## 자동으로 꺼진 기능'); L.push(''); R.disabled.forEach(function (d) { L.push('- ' + d); }); L.push(''); }
+    L.push('## 해석상 한계');
+    L.push('');
+    L.push('- 성과는 투입 이후 시차를 두고 나타나므로 같은 해 투입과 성과를 곧바로 대응시키면 왜곡될 수 있습니다.');
+    L.push('- 사업 목적(원천·사업화·인프라 등)이 달라 논문·특허 밀도를 사업 간 우열로 읽을 수 없습니다.');
+    L.push('- 집계 자료이므로 개별 과제의 성과를 추정할 수 없습니다. 투입 0 행은 지표 계산에서 제외했습니다.');
+    L.push('- 입력 자료가 다루는 범위(기관·사업·연도)만 해당하며 국가 R&D 전체를 대표하지 않습니다.');
+    L.push('');
+    return L.join('\n');
+  }
+
+  return {
+    decodeBuffer: decodeBuffer, parseCSV: parseCSV, parseTable: parseTable, toNum: toNum,
+    quantile: quantile, gini: gini, profileColumns: profileColumns, suggestProfiles: suggestProfiles,
+    analyze: analyze, buildOutputs: buildOutputs, toCSV: toCSV, DEFAULT_TH: DEFAULT_TH,
+    fmt: { num: num, pct: pct, r4: r4 }
+  };
+});
+
+</script>
+<script>
+/* charts.js - 외부 라이브러리 없이 직접 그리는 SVG 차트. 색은 CSS 변수(--s1~--sn)를 따른다. */
+(function (root) {
+  'use strict';
+  var NS = 'http://www.w3.org/2000/svg';
+
+  function esc(s) { return String(s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
+  function fmt(x, d) { return Number(x).toLocaleString('en-US', { maximumFractionDigits: d === undefined ? 1 : d }); }
+
+  function tipFor(host) {
+    var t = host.querySelector('.tip');
+    if (!t) { t = document.createElement('div'); t.className = 'tip'; host.appendChild(t); }
+    return t;
+  }
+  function showTip(host, html, clientX, clientY) {
+    var t = tipFor(host), b = host.getBoundingClientRect();
+    t.innerHTML = html; t.style.display = 'block';
+    var x = clientX - b.left + 12, y = clientY - b.top + 12;
+    if (x + t.offsetWidth > b.width) x = clientX - b.left - t.offsetWidth - 12;
+    t.style.left = Math.max(0, x) + 'px'; t.style.top = y + 'px';
+  }
+  function hideTip(host) { var t = host.querySelector('.tip'); if (t) t.style.display = 'none'; }
+
+  var HATCH = '<defs><pattern id="hatch" width="7" height="7" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">' +
+    '<line x1="0" y1="0" x2="0" y2="7" stroke="currentColor" stroke-width="1.2" opacity=".22"/></pattern></defs>';
+
+  /* 산점도: x=투입(로그), y=복합 밀도(log10(1+y)). 점검 구역(우하단)을 빗금으로 표시 */
+  function scatter(host, R) {
+    var rows = R.analyzable.filter(function (r) { return r.comp !== null; });
+    var W = 760, H = 400, m = { l: 54, r: 14, t: 14, b: 46 };
+    var xs = rows.map(function (r) { return r.input; }), ys = rows.map(function (r) { return r.comp; });
+    var xmin = Math.min.apply(null, xs) * 0.8, xmax = Math.max.apply(null, xs) * 1.25;
+    var ymax = Math.max.apply(null, ys) * 1.08;
+    var lx = function (v) { return Math.log10(v); }, ty = function (v) { return Math.log10(1 + v); };
+    var X = function (v) { return m.l + (lx(v) - lx(xmin)) / (lx(xmax) - lx(xmin)) * (W - m.l - m.r); };
+    var Y = function (v) { return H - m.b - ty(v) / ty(ymax) * (H - m.t - m.b); };
+    var s = '<svg viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="투입 대비 복합 밀도 산점도. 같은 내용을 아래 표에서 확인할 수 있습니다.">' + HATCH;
+    [1, 3, 10, 30, 100, 300, 1000, 3000, 10000].forEach(function (v) {
+      if (v < xmin || v > xmax) return;
+      s += '<line class="grid" x1="' + X(v) + '" x2="' + X(v) + '" y1="' + m.t + '" y2="' + (H - m.b) + '"/><text x="' + X(v) + '" y="' + (H - m.b + 16) + '" text-anchor="middle">' + fmt(v, 0) + '</text>';
+    });
+    [0, 1, 2, 5, 10, 20, 50, 100, 200].forEach(function (v) {
+      if (v > ymax) return;
+      s += '<line class="grid" x1="' + m.l + '" x2="' + (W - m.r) + '" y1="' + Y(v) + '" y2="' + Y(v) + '"/><text x="' + (m.l - 8) + '" y="' + (Y(v) + 4) + '" text-anchor="end">' + v + '</text>';
+    });
+    if (R.cut.inputHi !== null && R.cut.inputHi >= xmin) {
+      var x0 = X(R.cut.inputHi), y0 = Y(R.cut.densityLo);
+      s += '<rect class="zone" x="' + x0 + '" y="' + y0 + '" width="' + (W - m.r - x0) + '" height="' + (H - m.b - y0) + '" style="color:var(--ink)"/>';
+      s += '<line class="cutline" x1="' + x0 + '" x2="' + x0 + '" y1="' + m.t + '" y2="' + (H - m.b) + '"/><line class="cutline" x1="' + x0 + '" x2="' + (W - m.r) + '" y1="' + y0 + '" y2="' + y0 + '"/>';
+      s += '<text class="zlabel" x="' + (W - m.r - 6) + '" y="' + (H - m.b - 8) + '" text-anchor="end">점검 구역</text>';
+    }
+    s += '<line class="axis" x1="' + m.l + '" x2="' + (W - m.r) + '" y1="' + (H - m.b) + '" y2="' + (H - m.b) + '"/><line class="axis" x1="' + m.l + '" x2="' + m.l + '" y1="' + m.t + '" y2="' + (H - m.b) + '"/>';
+    s += '<text class="ttl" x="' + ((W + m.l) / 2) + '" y="' + (H - 8) + '" text-anchor="middle">투입 ' + esc(R.units.input) + ' (로그 눈금)</text>';
+    s += '<text class="ttl" transform="translate(13,' + ((H - m.b + m.t) / 2) + ') rotate(-90)" text-anchor="middle">복합 밀도 (' + esc(R.units.densityLabel) + ' 건, 완만한 로그 눈금)</text>';
+    var cls = { '논문형': 's1', '균형형': 's2', '특허형': 's3', '성과 없음': 'sn' };
+    var pts = rows.map(function (r) {
+      var c = R.flags.hasBoth ? cls[r.type] : 's1';
+      return { r: r, x: X(r.input), y: Y(r.comp), c: c };
+    });
+    // 성과 없음(회색)을 먼저 그려 색 있는 점이 위로 오게 한다
+    pts.slice().sort(function (a, b) { return (a.c === 'sn' ? 0 : 1) - (b.c === 'sn' ? 0 : 1); }).forEach(function (p) {
+      s += '<circle class="pt ' + p.c + '" cx="' + p.x + '" cy="' + p.y + '" r="4.5"/>';
+      if (p.r.flag) s += '<circle class="ring" cx="' + p.x + '" cy="' + p.y + '" r="8"/>';
+    });
+    s += '<circle class="hl" r="9" cx="-50" cy="-50" id="sc-hl"/></svg>';
+    host.innerHTML = s; host.appendChild(tipFor(host));
+    var svg = host.querySelector('svg'), hl = svg.querySelector('#sc-hl');
+    svg.addEventListener('mousemove', function (e) {
+      var b = svg.getBoundingClientRect(), k = W / b.width, mx = (e.clientX - b.left) * k, my = (e.clientY - b.top) * k;
+      var best = null, bd = 14 * 14;
+      pts.forEach(function (p) { var d = (p.x - mx) * (p.x - mx) + (p.y - my) * (p.y - my); if (d < bd) { bd = d; best = p; } });
+      if (!best) { hl.setAttribute('cx', -50); hideTip(host); return; }
+      hl.setAttribute('cx', best.x); hl.setAttribute('cy', best.y);
+      var r = best.r;
+      showTip(host, '<b>' + esc(r.label) + '</b><br>' + (r.group ? esc(r.group) + '<br>' : '') + '투입 ' + fmt(r.input) + R.units.input +
+        '<br>논문 ' + fmt(r.paper, 0) + ' · 특허 ' + fmt(r.patent, 0) + '<br>복합 밀도 ' + fmt(r.comp, 2) + (r.type ? '<br>' + r.type : '') + (r.flag ? '<br>점검 후보' : ''), e.clientX, e.clientY);
+    });
+    svg.addEventListener('mouseleave', function () { hl.setAttribute('cx', -50); hideTip(host); });
+  }
+
+  /* 가로 막대(유형 분포 등) */
+  function hbars(host, items, total) {
+    var W = 420, rowH = 34, H = items.length * rowH + 4, lw = 74, rw = 86;
+    var max = Math.max.apply(null, items.map(function (i) { return i.v; })) || 1;
+    var s = '<svg viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="분포 막대 그래프">';
+    items.forEach(function (it, i) {
+      var y = i * rowH + 4, w = Math.max(it.v ? 3 : 0, it.v / max * (W - lw - rw));
+      s += '<text x="0" y="' + (y + 17) + '">' + esc(it.k) + '</text>';
+      s += '<rect class="' + it.c + '" x="' + lw + '" y="' + (y + 4) + '" width="' + w + '" height="18" rx="3"/>';
+      s += '<text x="' + (lw + w + 8) + '" y="' + (y + 17) + '">' + it.v + '행 · ' + (total ? (it.v / total * 100).toFixed(0) : 0) + '%</text>';
+    });
+    host.innerHTML = s + '</svg>';
+  }
+
+  /* 누적 집중도 곡선 */
+  function lorenz(host, R) {
+    var c = R.conc, W = 420, H = 330, m = { l: 44, r: 14, t: 14, b: 42 };
+    var X = function (v) { return m.l + v * (W - m.l - m.r); }, Y = function (v) { return H - m.b - v * (H - m.t - m.b); };
+    var s = '<svg viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="투입 큰 순서로 쌓은 누적 비중 곡선">';
+    [0, 0.25, 0.5, 0.75, 1].forEach(function (v) {
+      s += '<line class="grid" x1="' + m.l + '" x2="' + (W - m.r) + '" y1="' + Y(v) + '" y2="' + Y(v) + '"/><text x="' + (m.l - 7) + '" y="' + (Y(v) + 4) + '" text-anchor="end">' + v * 100 + '%</text>';
+      s += '<text x="' + X(v) + '" y="' + (H - m.b + 16) + '" text-anchor="middle">' + v * 100 + '%</text>';
+    });
+    s += '<line class="cutline" x1="' + X(0) + '" y1="' + Y(0) + '" x2="' + X(1) + '" y2="' + Y(1) + '"/>';
+    var d = 'M' + X(0) + ' ' + Y(0) + c.curve.map(function (p) { return ' L' + X(p[0]).toFixed(1) + ' ' + Y(p[1]).toFixed(1); }).join('');
+    s += '<path class="l1" d="' + d + '"/>';
+    var tx = c.k / R.analyzable.length, ty = c.topShareInput;
+    s += '<circle class="pt s1" cx="' + X(tx) + '" cy="' + Y(ty) + '" r="5"/>';
+    s += '<text x="' + (X(tx) + 10) + '" y="' + (Y(ty) + 18) + '" style="fill:var(--ink);font-weight:600">상위 ' + c.k + '행 → ' + (ty * 100).toFixed(1) + '%</text>';
+    s += '<text class="ttl" x="' + ((W + m.l) / 2) + '" y="' + (H - 6) + '" text-anchor="middle">투입 큰 순서로 쌓은 행 비중</text>';
+    s += '<text class="ttl" transform="translate(11,' + ((H - m.b + m.t) / 2) + ') rotate(-90)" text-anchor="middle">누적 투입 비중</text></svg>';
+    host.innerHTML = s;
+  }
+
+  /* 세로 막대(연도 추이) */
+  function vbars(host, items, ytitle, dec) {
+    var W = 360, H = 240, m = { l: 48, r: 10, t: 22, b: 34 };
+    var max = Math.max.apply(null, items.map(function (i) { return i.v; })) || 1;
+    var bw = Math.min(56, (W - m.l - m.r) / items.length - 14);
+    var s = '<svg viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="' + esc(ytitle) + ' 연도별 막대 그래프">';
+    s += '<text class="ttl" x="0" y="12">' + esc(ytitle) + '</text>';
+    s += '<line class="axis" x1="' + m.l + '" x2="' + (W - m.r) + '" y1="' + (H - m.b) + '" y2="' + (H - m.b) + '"/>';
+    items.forEach(function (it, i) {
+      var cw = (W - m.l - m.r) / items.length, cx = m.l + cw * i + cw / 2, h = it.v / max * (H - m.t - m.b);
+      s += '<path class="s1" d="M' + (cx - bw / 2) + ' ' + (H - m.b) + 'V' + (H - m.b - h + 4) + 'Q' + (cx - bw / 2) + ' ' + (H - m.b - h) + ' ' + (cx - bw / 2 + 4) + ' ' + (H - m.b - h) + 'H' + (cx + bw / 2 - 4) + 'Q' + (cx + bw / 2) + ' ' + (H - m.b - h) + ' ' + (cx + bw / 2) + ' ' + (H - m.b - h + 4) + 'V' + (H - m.b) + 'Z"/>';
+      s += '<text x="' + cx + '" y="' + (H - m.b - h - 6) + '" text-anchor="middle" style="fill:var(--ink)">' + fmt(it.v, dec) + '</text>';
+      s += '<text x="' + cx + '" y="' + (H - 14) + '" text-anchor="middle">' + esc(it.k) + '</text>';
+    });
+    host.innerHTML = s + '</svg>';
+  }
+
+  root.Charts = { scatter: scatter, hbars: hbars, lorenz: lorenz, vbars: vbars, esc: esc };
+})(typeof self !== 'undefined' ? self : this);
+
+</script>
+<script>
+/* app.js - 화면 동작. 계산은 Core, 그림은 Charts가 맡는다. */
+(function () {
+  'use strict';
+  var $ = function (id) { return document.getElementById(id); };
+  var esc = Charts.esc, F = Core.fmt;
+  var B = window.BUILTIN || { profiles: [], examples: [] };
+
+  var S = { profiles: B.profiles.slice(), table: null, name: '', R: null, th: {}, sortKey: null, sortDir: -1, showAll: false, groupsAll: false, files: null };
+
+  /* ---------- 입력 ---------- */
+
+  function setMsg(kind, html) { $('msg').innerHTML = html ? '<div class="msg ' + kind + '">' + html + '</div>' : ''; }
+
+  function loadText(text, name) {
+    var t = Core.parseTable(text);
+    if (t.length < 2) { setMsg('err', '데이터 행이 없습니다. 첫 줄에 컬럼명, 다음 줄부터 값이 있어야 합니다.'); return false; }
+    S.table = t; S.name = name || '붙여넣은 자료'; S.th = {};
+    $('inname').textContent = S.name + ' · ' + (t.length - 1) + '행 · ' + t[0].length + '컬럼';
+    pickProfile(); buildMapForm();
+    return true;
+  }
+
+  function pickProfile() {
+    var sug = Core.suggestProfiles(S.table[0], S.profiles), best = sug[0];
+    $('profile').value = best.profile.id;
+    showMatch(sug); resetThresholdInputs();
+    if (best.score < 1) $('mapbox').open = true;
+  }
+  function showMatch(sug) {
+    var cur = sug.filter(function (s) { return s.profile.id === $('profile').value; })[0];
+    if (!cur) return;
+    $('match').innerHTML = cur.score === 1 ? '컬럼 ' + cur.total + '개가 모두 맞습니다.' :
+      '컬럼 ' + cur.matched + '/' + cur.total + '개만 맞습니다. 다른 프로필을 고르거나 아래에서 컬럼을 직접 지정하세요.';
+  }
+  function curProfile() { return S.profiles.filter(function (p) { return p.id === $('profile').value; })[0]; }
+
+  function fillProfileSelect() {
+    $('profile').innerHTML = S.profiles.map(function (p) { return '<option value="' + esc(p.id) + '">' + esc(p.name) + '</option>'; }).join('');
+  }
+
+  var TH_FIELDS = [['typePaper', '논문형: 논문 비중 이상 (%)'], ['typePatent', '특허형: 논문 비중 이하 (%)'], ['flagInputTop', '점검: 투입 상위 (%)'],
+    ['flagDensityBottom', '점검: 복합 밀도 하위 (%)'], ['concentrationTop', '집중도: 상위 행 (%)']];
+  function resetThresholdInputs() {
+    var th = Object.assign({}, Core.DEFAULT_TH, curProfile().thresholds || {});
+    $('th').innerHTML = TH_FIELDS.map(function (f) {
+      return '<div><label class="f" for="th-' + f[0] + '">' + f[1] + '</label><input type="number" id="th-' + f[0] + '" min="1" max="99" step="1" value="' + Math.round(th[f[0]] * 100) + '"></div>';
+    }).join('');
+    TH_FIELDS.forEach(function (f) {
+      $('th-' + f[0]).addEventListener('change', function () { readThresholds(); if (S.R) run(); });
+    });
+    S.th = {};
+  }
+  function readThresholds() {
+    var o = {};
+    TH_FIELDS.forEach(function (f) { var v = parseFloat($('th-' + f[0]).value); if (v > 0 && v < 100) o[f[0]] = v / 100; });
+    S.th = o;
+  }
+
+  /* ---------- 컬럼 직접 지정 ---------- */
+
+  function guess(h, re, not) { return h.filter(function (x) { return re.test(x) && !(not && not.test(x)); }); }
+  function buildMapForm() {
+    var h = S.table[0].map(function (x) { return x.trim(); });
+    var opt = function (sel, none) {
+      return (none ? '<option value="">(사용 안 함)</option>' : '') + h.map(function (x) { return '<option' + (x === sel ? ' selected' : '') + '>' + esc(x) + '</option>'; }).join('');
+    };
+    var g = {
+      input: guess(h, /출연|연구비|투입|예산|금액|비용/)[0], count: guess(h, /과제.*(수|건)|건수/)[0],
+      group: guess(h, /사업/)[0], year: guess(h, /연도|년도/)[0],
+      paper: guess(h, /논문|SCI/), patent: guess(h, /특허.*등록|등록.*특허/)
+    };
+    var chk = function (name, sel) {
+      return '<div class="chk">' + h.map(function (x, i) { return '<label><input type="checkbox" name="' + name + '" value="' + esc(x) + '"' + (sel && sel.indexOf(x) >= 0 ? ' checked' : '') + '>' + esc(x) + '</label>'; }).join('') + '</div>';
+    };
+    $('mapform').innerHTML =
+      '<p class="note">컬럼 역할을 지정하면 새 프로필이 만들어집니다. 투입 컬럼은 필수입니다.</p>' +
+      '<div><label class="f" for="m-input">투입(연구비·출연금) *</label><select id="m-input">' + opt(g.input) + '</select></div>' +
+      '<div class="grid2"><div><label class="f" for="m-unit">투입 단위 표기</label><input type="text" id="m-unit" value="억원"></div>' +
+      '<div><label class="f" for="m-per">밀도 기준 (투입 몇 단위당)</label><input type="number" id="m-per" value="10" min="1"></div></div>' +
+      '<div><label class="f" for="m-count">과제 수</label><select id="m-count">' + opt(g.count, true) + '</select></div>' +
+      '<div><label class="f">논문 컬럼 (여러 개 선택 가능)</label>' + chk('m-paper', g.paper) + '</div>' +
+      '<div><label class="f">특허 컬럼 (여러 개 선택 가능)</label>' + chk('m-patent', g.patent) + '</div>' +
+      '<div><label class="f" for="m-group">집계 기준 그룹</label><select id="m-group">' + opt(g.group, true) + '</select></div>' +
+      '<div><label class="f" for="m-year">연도</label><select id="m-year">' + opt(g.year, true) + '</select></div>' +
+      '<div><label class="f" for="m-label">행 이름으로 쓸 컬럼 (여러 개 선택 가능)</label>' + chk('m-label', [h[0]]) + '</div>' +
+      '<div class="row"><button type="button" class="primary" id="m-go">이 지정으로 분석</button><button type="button" id="m-dl">프로필 JSON 내려받기</button></div>';
+    $('m-go').onclick = function () { var p = mapProfile(); S.profiles.push(p); fillProfileSelect(); $('profile').value = p.id; resetThresholdInputs(); run(); };
+    $('m-dl').onclick = function () { var p = mapProfile(); download(p.id + '.json', JSON.stringify(p, null, 2) + '\n', 'application/json'); };
+  }
+  function checked(name) { return Array.prototype.map.call(document.querySelectorAll('input[name="' + name + '"]:checked'), function (e) { return e.value; }); }
+  function mapProfile() {
+    var id = 'custom_' + (S.profiles.length + 1);
+    return {
+      id: id, name: '직접 지정 프로필 ' + (S.profiles.length + 1), description: '화면에서 컬럼을 지정해 만든 프로필',
+      columns: { year: $('m-year').value || null, group: $('m-group').value || null, label: checked('m-label'), count: $('m-count').value || null,
+        input: $('m-input').value, paper: checked('m-paper'), patent: checked('m-patent'), aux: [] },
+      units: { input: $('m-unit').value, densityPer: parseFloat($('m-per').value) || 1, densityLabel: '투입 ' + (parseFloat($('m-per').value) || 1) + $('m-unit').value + '당' },
+      thresholds: Object.assign({}, Core.DEFAULT_TH)
+    };
+  }
+
+  /* ---------- 실행 ---------- */
+
+  function run() {
+    if (!S.table) { setMsg('err', '먼저 자료를 고르거나 붙여넣으세요.'); return; }
+    readThresholds();
+    var R = Core.analyze(S.table, curProfile(), { thresholds: S.th });
+    if (!R.ok) {
+      $('result').classList.add('hidden');
+      setMsg('err', esc(R.errors.join(' ')) + '<br>다른 프로필을 고르거나 "컬럼 직접 지정"을 사용하세요.');
+      $('mapbox').open = true; return;
+    }
+    S.R = R; S.files = Core.buildOutputs(R, { inputName: S.name });
+    setMsg(R.allOk ? 'ok' : 'warn', R.allOk ? '분석을 마쳤습니다. 검산이 모두 일치합니다.' : '분석은 했지만 검산에 불일치가 있습니다. 아래 검산 표를 확인하세요.');
+    $('result').classList.remove('hidden');
+    render(R);
+    $('sec-check').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  /* ---------- 표 보조 ---------- */
+
+  function table(cols, rows, extra) {
+    var h = '<div class="tw"><table><thead><tr>' + cols.map(function (c) {
+      return '<th class="' + (c.n ? 'n ' : '') + (c.l ? 'l ' : '') + (c.sort ? 'sort' : '') + '"' + (c.sort ? ' data-k="' + c.key + '" tabindex="0"' : '') + '>' + esc(c.h) + (extra && extra.sortKey === c.key ? (extra.sortDir > 0 ? ' ▲' : ' ▼') : '') + '</th>';
+    }).join('') + '</tr></thead><tbody>' + rows.map(function (r) {
+      return '<tr' + (r.flag ? ' class="flag"' : '') + '>' + cols.map(function (c) { return '<td class="' + (c.n ? 'n ' : '') + (c.l ? 'l' : '') + '">' + c.f(r) + '</td>'; }).join('') + '</tr>';
+    }).join('') + '</tbody></table></div>';
+    return h;
+  }
+  var N = F.num;
+  function tagHtml(t) {
+    var c = { '논문형': 's1', '균형형': 's2', '특허형': 's3', '성과 없음': 'sn' }[t];
+    return t ? '<span class="tag"><i style="background:var(--' + c + ')"></i>' + esc(t) + '</span>' : '';
+  }
+  function cols(R, withType) {
+    var u = R.units.input, f = R.flags, c = [];
+    if (R.cols.year && R.years) c.push({ h: '연도', key: 'year', f: function (r) { return esc(r.year); }, sort: true });
+    if (f.hasGroup) c.push({ h: '그룹', key: 'group', f: function (r) { return esc(r.group); }, l: true, sort: true });
+    c.push({ h: '항목', key: 'label', f: function (r) { return esc(r.label); }, l: true, sort: true });
+    if (f.hasCount) c.push({ h: '과제수', key: 'count', n: 1, f: function (r) { return N(r.count); }, sort: true });
+    c.push({ h: '투입(' + u + ')', key: 'input', n: 1, f: function (r) { return N(r.input); }, sort: true });
+    if (f.hasPaper) c.push({ h: '논문', key: 'paper', n: 1, f: function (r) { return N(r.paper); }, sort: true });
+    if (f.hasPatent) c.push({ h: '특허', key: 'patent', n: 1, f: function (r) { return N(r.patent); }, sort: true });
+    if (withType) {
+      if (f.hasPaper || f.hasPatent) c.push({ h: '복합 밀도', key: 'comp', n: 1, f: function (r) { return N(r.comp); }, sort: true });
+      if (f.hasBoth) c.push({ h: '유형', key: 'type', f: function (r) { return tagHtml(r.type); }, sort: true });
+    }
+    return c;
+  }
+
+  /* ---------- 화면 그리기 ---------- */
+
+  function render(R) {
+    var t = R.totals, u = R.units.input, f = R.flags;
+
+    // 1. 검산
+    var inp = R.checks.filter(function (c) { return c.item === R.cols.input; })[0];
+    $('sec-check').innerHTML =
+      '<h2>2. 검산</h2><p class="sub">결과를 보기 전에 원본 합계와 집계 합계가 같은지 먼저 확인합니다. 투입이 0이거나 비어 있는 행은 지표 계산에서 빠지지만, 합계에는 남아 있어야 합니다.</p>' +
+      '<div class="ledger"><div class="ledger-head ' + (R.allOk ? 'ok' : 'bad') + '">' + (R.allOk ? '✓ 모든 검산 일치' : '✕ 불일치 있음') +
+      '<span class="eq">투입 원본 ' + N(inp.source) + u + ' = 분석 대상 ' + N(inp.analyzable) + ' + 제외 ' + N(inp.excluded) + '</span></div>' +
+      table([{ h: '항목', f: function (r) { return esc(r.item); }, l: true }, { h: '원본 합계', n: 1, f: function (r) { return N(r.source); } },
+        { h: '분석 대상', n: 1, f: function (r) { return N(r.analyzable); } }, { h: '제외', n: 1, f: function (r) { return N(r.excluded); } },
+        { h: '집계표', n: 1, f: function (r) { return r.groupTotal === null ? '-' : N(r.groupTotal); } },
+        { h: '결과', f: function (r) { return r.ok ? '<span style="color:var(--ok)">일치</span>' : '<b style="color:var(--bad)">불일치</b>'; } }], R.checks) + '</div>' +
+      '<div class="stack" style="margin-top:12px">' +
+      '<div class="msg ' + (t.excludedWithOutput ? 'warn' : 'ok') + '">전체 ' + t.rows + '행 중 분석 대상 ' + t.analyzable + '행, 투입 0·빈 칸으로 제외 ' + t.excluded + '행.' +
+      (t.excludedWithOutput ? ' 제외 행 중 ' + t.excludedWithOutput + '행에는 성과가 있어(논문 ' + N(t.excludedPaper) + '건, 특허 ' + N(t.excludedPatent) + '건) 밀도를 계산할 수 없으므로 아래 "제외 행" 표에 따로 둡니다.' : '') + '</div>' +
+      '<div class="msg ' + (R.dups || R.badCells ? 'warn' : 'ok') + '">이중 집계 의심 ' + R.dups + '건(같은 연도·그룹·항목 중복), 숫자로 읽히지 않은 칸 ' + R.badCells + '개.</div>' +
+      (R.disabled.length ? '<div class="note">자동으로 꺼진 기능: ' + esc(R.disabled.join(' / ')) + '</div>' : '') + '</div>';
+
+    // 2. KPI
+    var k = [['분석 대상 행', N(t.analyzable) + ' / ' + N(t.rows)], ['투입 합계', N(t.analyzableInput) + u]];
+    if (f.hasCount) { k.push(['과제 수', N(t.analyzableCount) + '건']); k.push(['과제당 평균 투입', N(t.avgInput) + u]); }
+    if (f.hasPaper) k.push(['논문', N(t.analyzablePaper) + '건']);
+    if (f.hasPatent) k.push(['특허', N(t.analyzablePatent) + '건']);
+    if (t.comp !== null) k.push(['전체 복합 밀도', N(t.comp)]);
+    $('sec-kpi').innerHTML = '<h2>3. 요약</h2><p class="sub">분석 대상 행 기준입니다. 복합 밀도는 ' + esc(R.units.densityLabel) + ' 논문+특허 건수입니다.</p><div class="kpis">' +
+      k.map(function (x) { return '<div class="kpi"><b>' + x[1] + '</b><span>' + esc(x[0]) + '</span></div>'; }).join('') + '</div>';
+
+    // 3. 산점도
+    var sp = $('sec-scatter');
+    if (R.cut.inputHi !== null) {
+      sp.innerHTML = '<h2>4. 투입과 성과 밀도</h2><p class="sub">한 점은 한 행입니다. 오른쪽 아래(투입은 크고 밀도는 낮은 구역)의 고리 표시 행이 점검 후보입니다. 마우스를 올리면 값이 보입니다.</p>' +
+        (f.hasBoth ? '<div class="legend"><span><i style="background:var(--s1)"></i>논문형</span><span><i style="background:var(--s2)"></i>균형형</span><span><i style="background:var(--s3)"></i>특허형</span><span><i style="background:var(--sn)"></i>성과 없음</span><span><i class="ringkey"></i>점검 후보</span></div>' : '<div class="legend"><span><i class="ringkey"></i>점검 후보</span></div>') +
+        '<div class="chart" id="ch-sc"></div>';
+      Charts.scatter($('ch-sc'), R);
+    } else sp.innerHTML = '<h2>4. 투입과 성과 밀도</h2><div class="msg warn">논문·특허 컬럼이 없어 이 그래프를 만들 수 없습니다.</div>';
+
+    // 4. 분포
+    $('sec-dist').innerHTML = '<h2>5. 유형 분포와 투입 집중도</h2><p class="sub">유형은 논문 비중으로 나눕니다(논문형 ≥ ' + F.pct(R.thresholds.typePaper, 0) + ', 특허형 ≤ ' + F.pct(R.thresholds.typePatent, 0) + '). 집중도는 투입이 큰 행부터 쌓은 누적 비중입니다.</p>' +
+      '<div class="grid2"><div><h3>성과 유형 분포</h3><div class="chart" id="ch-type">' + (R.typeCount ? '' : '<div class="msg warn">논문·특허 컬럼이 모두 있어야 유형을 나눌 수 있습니다.</div>') + '</div>' +
+      (R.conc ? '<p class="note">투입 상위 ' + F.pct(R.thresholds.concentrationTop, 0) + '(' + R.conc.k + '행)의 투입 비중 <b>' + F.pct(R.conc.topShareInput) + '</b>' +
+        (R.conc.topSharePatent !== null ? ', 특허 비중 ' + F.pct(R.conc.topSharePatent) : '') + (R.conc.topSharePaper !== null ? ', 논문 비중 ' + F.pct(R.conc.topSharePaper) : '') +
+        '. 지니계수(투입) ' + R.conc.giniInput.toFixed(3) + '.</p>' : '') + '</div>' +
+      '<div><h3>누적 투입 비중</h3><div class="chart" id="ch-lz"></div></div></div>';
+    if (R.typeCount) Charts.hbars($('ch-type'), [['논문형', 's1'], ['균형형', 's2'], ['특허형', 's3'], ['성과 없음', 'sn']].map(function (x) { return { k: x[0], c: x[1], v: R.typeCount[x[0]] }; }), t.analyzable);
+    if (R.conc) Charts.lorenz($('ch-lz'), R);
+
+    // 5. 점검 후보
+    $('sec-flags').innerHTML = '<h2>6. 점검 후보</h2>' + (R.cut.inputHi === null ? '<div class="msg warn">논문·특허 컬럼이 없어 계산하지 않았습니다.</div>' :
+      '<p class="sub">투입 상위 ' + F.pct(R.thresholds.flagInputTop, 0) + '(≥ ' + N(R.cut.inputHi) + u + ')이면서 복합 밀도 하위 ' + F.pct(R.thresholds.flagDensityBottom, 0) + '(≤ ' + N(R.cut.densityLo) + '). 부실 판정이 아니라 사업 성격과 성과 시차를 먼저 확인할 대상입니다.</p>' +
+      (R.flagged.length ? table(cols(R, true), R.flagged) : '<div class="msg ok">조건에 맞는 행이 없습니다.</div>'));
+
+    // 6. 집계표
+    var gs = R.groups;
+    if (gs) {
+      var show = S.groupsAll ? gs : gs.slice(0, 15);
+      var gc = [{ h: '그룹', f: function (r) { return esc(r.group); }, l: true }, { h: '행 수', n: 1, f: function (r) { return N(r.rows); } }];
+      if (f.hasCount) gc.push({ h: '과제수', n: 1, f: function (r) { return N(r.count); } });
+      gc.push({ h: '투입(' + u + ')', n: 1, f: function (r) { return N(r.input); } });
+      if (f.hasPaper) gc.push({ h: '논문', n: 1, f: function (r) { return N(r.paper); } });
+      if (f.hasPatent) gc.push({ h: '특허', n: 1, f: function (r) { return N(r.patent); } });
+      if (R.flags.hasPaper || R.flags.hasPatent) gc.push({ h: '복합 밀도', n: 1, f: function (r) { return r.comp === null ? '-' : N(r.comp); } });
+      $('sec-groups').innerHTML = '<h2>7. 집계표 (' + esc(R.cols.group) + '별)</h2><p class="sub">제외 행도 합계에는 포함한 집계입니다. 투입 순으로 정렬했고 합계는 검산 표의 "집계표" 열과 같습니다.</p>' +
+        table(gc, show) + (gs.length > 15 ? '<div style="margin-top:10px"><button type="button" id="g-more">' + (S.groupsAll ? '상위 15개만 보기' : '전체 ' + gs.length + '개 보기') + '</button></div>' : '');
+      var gm = $('g-more'); if (gm) gm.onclick = function () { S.groupsAll = !S.groupsAll; render(R); };
+    } else $('sec-groups').innerHTML = '<h2>7. 집계표</h2><div class="msg warn">그룹 컬럼이 지정되지 않아 집계표를 만들지 않았습니다.</div>';
+
+    // 7. 연도
+    var ys = $('sec-years');
+    if (R.years) {
+      ys.classList.remove('hidden');
+      ys.innerHTML = '<h2>연도 추이</h2><p class="sub">연도 값이 둘 이상일 때만 나타납니다.</p><div class="grid2"><div class="chart" id="ch-y1"></div><div class="chart" id="ch-y2"></div></div>';
+      Charts.vbars($('ch-y1'), R.years.map(function (y) { return { k: y.year, v: y.input }; }), '투입 합계(' + u + ')', 0);
+      Charts.vbars($('ch-y2'), R.years.map(function (y) { return { k: y.year, v: y.comp || 0 }; }), '복합 밀도', 2);
+    } else ys.classList.add('hidden');
+
+    // 8. 전체 지표표
+    renderAll(R);
+
+    // 9. 제외 행
+    $('sec-excl').innerHTML = '<h2>9. 제외 행 (투입 0·빈 칸)</h2><p class="sub">밀도를 계산할 수 없어 지표에서 뺀 행입니다. 성과가 있는 행은 사업 간 비교 전에 별도로 해석해야 합니다.</p>' +
+      (R.excluded.length ? table(cols(R, false).filter(function (c) { return c.key !== 'year' || true; }), S.showExcl ? R.excluded : R.excluded.slice(0, 20)) +
+        (R.excluded.length > 20 ? '<div style="margin-top:10px"><button type="button" id="e-more">' + (S.showExcl ? '20행만 보기' : '전체 ' + R.excluded.length + '행 보기') + '</button></div>' : '') : '<div class="msg ok">제외된 행이 없습니다.</div>');
+    var em = $('e-more'); if (em) em.onclick = function () { S.showExcl = !S.showExcl; render(R); };
+
+    // 10. 저장
+    var names = Object.keys(S.files);
+    $('sec-save').innerHTML = '<h2>10. 저장</h2><p class="sub">결과는 이 페이지에서 파일로 내려받습니다. 정적 페이지는 컴퓨터의 폴더에 직접 쓸 수 없으므로 압축 파일(out 폴더 구성)이나 폴더 선택 저장을 제공합니다.</p>' +
+      '<div class="row"><button type="button" class="primary" id="s-zip">모두 받기 (out.zip)</button>' +
+      (window.showDirectoryPicker ? '<button type="button" id="s-dir">폴더에 저장 (out/)</button>' : '') +
+      '<button type="button" id="s-copy">요약(마크다운) 복사</button></div>' +
+      '<div class="row" style="margin-top:12px">' + names.map(function (n) { return '<button type="button" data-f="' + esc(n) + '">' + esc(n) + '</button>'; }).join('') + '</div><div id="s-msg" class="note" style="margin-top:10px"></div>';
+    $('s-zip').onclick = function () { downloadBlob('out.zip', zip(S.files), 'application/zip'); };
+    var sd = $('s-dir'); if (sd) sd.onclick = saveDir;
+    $('s-copy').onclick = function () {
+      var done = function () { $('s-msg').textContent = '요약을 복사했습니다.'; };
+      if (navigator.clipboard) navigator.clipboard.writeText(S.files['summary.md']).then(done, function () { $('s-msg').textContent = '복사가 막혀 있습니다. summary.md를 내려받아 사용하세요.'; });
+      else $('s-msg').textContent = '이 브라우저는 복사를 지원하지 않습니다. summary.md를 내려받아 사용하세요.';
+    };
+    Array.prototype.forEach.call($('sec-save').querySelectorAll('button[data-f]'), function (b) {
+      b.onclick = function () { var n = b.getAttribute('data-f'); download(n, S.files[n], /json$/.test(n) ? 'application/json' : /md$/.test(n) ? 'text/markdown' : 'text/csv'); };
+    });
+
+    // 11. 한계
+    $('sec-limits').innerHTML = '<h2>해석상 한계</h2><ul class="limits">' +
+      '<li>성과는 투입 이후 시차를 두고 나타나므로 같은 해 투입과 성과를 바로 대응시키면 왜곡될 수 있습니다.</li>' +
+      '<li>사업 목적(원천·사업화·인프라 등)이 달라 논문·특허 밀도를 사업 간 우열로 읽을 수 없습니다.</li>' +
+      '<li>집계 자료이므로 개별 과제의 성과를 추정할 수 없습니다.</li>' +
+      '<li>입력 자료가 다루는 범위(기관·사업·연도)에만 해당하며 국가 R&amp;D 전체를 대표하지 않습니다.</li></ul>';
+    bindSort();
+  }
+
+  function renderAll(R) {
+    var cs = cols(R, true), rows = R.analyzable.slice();
+    if (S.sortKey) {
+      var k = S.sortKey, d = S.sortDir;
+      rows.sort(function (a, b) {
+        var x = a[k], y = b[k];
+        if (x === null || x === undefined) x = -Infinity; if (y === null || y === undefined) y = -Infinity;
+        return (x < y ? -1 : x > y ? 1 : 0) * d;
+      });
+    }
+    var shown = S.showAll ? rows : rows.slice(0, 30);
+    rows.forEach(function (r) { r.flag = r.flag; });
+    $('sec-all').innerHTML = '<h2>8. 전체 지표표</h2><p class="sub">머리글을 누르면 정렬됩니다. 왼쪽 주황색 막대는 점검 후보입니다.</p>' +
+      table(cs, shown, { sortKey: S.sortKey, sortDir: S.sortDir }) +
+      (rows.length > 30 ? '<div style="margin-top:10px"><button type="button" id="a-more">' + (S.showAll ? '30행만 보기' : '전체 ' + rows.length + '행 보기') + '</button></div>' : '');
+    var am = $('a-more'); if (am) am.onclick = function () { S.showAll = !S.showAll; renderAll(R); bindSort(); };
+  }
+  function bindSort() {
+    Array.prototype.forEach.call(document.querySelectorAll('#sec-all th.sort'), function (th) {
+      var go = function () {
+        var k = th.getAttribute('data-k');
+        if (S.sortKey === k) S.sortDir = -S.sortDir; else { S.sortKey = k; S.sortDir = (k === 'label' || k === 'group' || k === 'type' || k === 'year') ? 1 : -1; }
+        renderAll(S.R); bindSort();
+      };
+      th.onclick = go; th.onkeydown = function (e) { if (e.key === 'Enter') go(); };
+    });
+  }
+
+  /* ---------- 저장 ---------- */
+
+  function downloadBlob(name, blob) {
+    var a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name;
+    document.body.appendChild(a); a.click(); setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 500);
+  }
+  function download(name, text, type) { downloadBlob(name, new Blob([text], { type: type + ';charset=utf-8' })); }
+
+  function saveDir() {
+    window.showDirectoryPicker({ mode: 'readwrite' }).then(function (dir) {
+      return dir.getDirectoryHandle('out', { create: true });
+    }).then(function (out) {
+      var p = Promise.resolve();
+      Object.keys(S.files).forEach(function (n) {
+        p = p.then(function () { return out.getFileHandle(n, { create: true }); }).then(function (fh) { return fh.createWritable(); })
+          .then(function (w) { return w.write(S.files[n]).then(function () { return w.close(); }); });
+      });
+      return p;
+    }).then(function () { $('s-msg').textContent = '선택한 폴더 아래 out/ 에 ' + Object.keys(S.files).length + '개 파일을 저장했습니다.'; })
+      .catch(function (e) { $('s-msg').textContent = e && e.name === 'AbortError' ? '저장을 취소했습니다.' : '폴더 저장에 실패했습니다. 압축 파일로 받아 주세요.'; });
+  }
+
+  // 압축 없이 담는(store) 최소 zip 작성기
+  var CRC = (function () { var t = []; for (var n = 0; n < 256; n++) { var c = n; for (var k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1; t[n] = c >>> 0; } return t; })();
+  function crc32(b) { var c = 0xffffffff; for (var i = 0; i < b.length; i++) c = CRC[(c ^ b[i]) & 255] ^ (c >>> 8); return (c ^ 0xffffffff) >>> 0; }
+  function zip(files) {
+    var enc = new TextEncoder(), parts = [], central = [], off = 0, d = new Date();
+    var dt = ((d.getHours() << 11) | (d.getMinutes() << 5) | (d.getSeconds() >> 1)), dd = (((d.getFullYear() - 1980) << 9) | ((d.getMonth() + 1) << 5) | d.getDate());
+    function u16(v) { return [v & 255, (v >> 8) & 255]; } function u32(v) { return [v & 255, (v >>> 8) & 255, (v >>> 16) & 255, (v >>> 24) & 255]; }
+    Object.keys(files).forEach(function (n) {
+      var name = enc.encode('out/' + n), data = enc.encode(files[n]), crc = crc32(data);
+      var head = [].concat(u32(0x04034b50), u16(20), u16(0x0800), u16(0), u16(dt), u16(dd), u32(crc), u32(data.length), u32(data.length), u16(name.length), u16(0));
+      parts.push(new Uint8Array(head), name, data);
+      central.push({ name: name, crc: crc, size: data.length, off: off });
+      off += head.length + name.length + data.length;
+    });
+    var cstart = off, csize = 0;
+    central.forEach(function (c) {
+      var h = [].concat(u32(0x02014b50), u16(20), u16(20), u16(0x0800), u16(0), u16(dt), u16(dd), u32(c.crc), u32(c.size), u32(c.size), u16(c.name.length), u16(0), u16(0), u16(0), u16(0), u32(0), u32(c.off));
+      parts.push(new Uint8Array(h), c.name); csize += h.length + c.name.length;
+    });
+    parts.push(new Uint8Array([].concat(u32(0x06054b50), u16(0), u16(0), u16(central.length), u16(central.length), u32(csize), u32(cstart), u16(0))));
+    return new Blob(parts, { type: 'application/zip' });
+  }
+
+  /* ---------- 이벤트 ---------- */
+
+  function readFile(file, cb) {
+    var fr = new FileReader();
+    fr.onload = function () { cb(file.name, Core.decodeBuffer(fr.result)); };
+    fr.readAsArrayBuffer(file);
+  }
+
+  function init() {
+    fillProfileSelect();
+    $('profile').addEventListener('change', function () {
+      resetThresholdInputs();
+      if (S.table) { showMatch(Core.suggestProfiles(S.table[0], S.profiles)); if (S.R) run(); }
+    });
+    $('file').addEventListener('change', function (e) {
+      var f = e.target.files[0]; if (!f) return;
+      readFile(f, function (name, text) { $('paste').value = ''; if (loadText(text, name)) run(); });
+    });
+    $('pfile').addEventListener('change', function (e) {
+      var f = e.target.files[0]; if (!f) return;
+      var fr = new FileReader();
+      fr.onload = function () {
+        try {
+          var p = JSON.parse(fr.result);
+          if (!p.id || !p.columns || !p.columns.input) throw new Error('id, columns.input 이 필요합니다.');
+          S.profiles = S.profiles.filter(function (x) { return x.id !== p.id; }); S.profiles.push(p);
+          fillProfileSelect(); $('profile').value = p.id; resetThresholdInputs();
+          if (S.table) { showMatch(Core.suggestProfiles(S.table[0], S.profiles)); run(); } else setMsg('ok', '프로필 "' + esc(p.name || p.id) + '"을 추가했습니다.');
+        } catch (err) { setMsg('err', '프로필 JSON을 읽지 못했습니다: ' + esc(err.message)); }
+      };
+      fr.readAsText(f, 'utf-8');
+    });
+    $('run').addEventListener('click', function () {
+      var txt = $('paste').value;
+      if (txt.trim()) { if (!loadText(txt, '붙여넣은 자료')) return; }
+      run();
+    });
+    $('th-reset').addEventListener('click', function () { resetThresholdInputs(); if (S.R) run(); });
+    function example(id) {
+      var ex = B.examples.filter(function (e) { return e.id === id; })[0];
+      if (!ex) { setMsg('err', '예시 자료를 찾지 못했습니다.'); return; }
+      $('paste').value = ''; loadText(ex.text, ex.file); $('profile').value = ex.profile; resetThresholdInputs();
+      showMatch(Core.suggestProfiles(S.table[0], S.profiles)); run();
+    }
+    $('ex-keit').addEventListener('click', function () { example('keit_2024'); });
+    $('ex-other').addEventListener('click', function () { example('other_org'); });
+  }
+
+  init();
+})();
+
+</script>
+</body>
+</html>
