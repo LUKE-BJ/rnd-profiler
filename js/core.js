@@ -105,7 +105,11 @@
     }).sort(function (a, b) { return b.score - a.score; });
   }
 
-  var DEFAULT_TH = { typePaper: 0.65, typePatent: 0.35, flagInputTop: 0.25, flagDensityBottom: 0.40, concentrationTop: 0.10 };
+  var VERSION = '0.2.0';
+  // smallInputBottom: 투입 하위 몇 %를 '분모 작음'으로 표시할지. expand*: 확대 검토 후보(투입 하위 N% 이면서 복합 밀도 상위 M%).
+  var DEFAULT_TH = { typePaper: 0.65, typePatent: 0.35, flagInputTop: 0.25, flagDensityBottom: 0.40, concentrationTop: 0.10,
+    smallInputBottom: 0.25, expandInputBottom: 0.50, expandDensityTop: 0.25 };
+  var TOP_DENSITY = 0.10; // '복합 밀도 상위 10% 중 분모 작음 행' 관찰문에 쓰는 비율
 
   /* ---------- 본 계산 ---------- */
 
@@ -183,6 +187,31 @@
       analyzable.forEach(function (r) { r.flag = r.input >= cut.inputHi && r.comp <= cut.densityLo; });
     }
     var flagged = analyzable.filter(function (r) { return r.flag; }).sort(function (a, b) { return b.input - a.input; });
+
+    // 분모 작음 표시와 확대 검토 후보(투입 하위 N% 이면서 복합 밀도 상위 M%). 분모가 작으면 밀도가 우연히 크게 나올 수 있어 따로 표시한다.
+    cut.smallLo = null; cut.expandInputLo = null; cut.expandDensityHi = null;
+    analyzable.forEach(function (r) { r.small = false; r.expand = false; });
+    if (analyzable.length && (hasPaper || hasPatent)) {
+      var inputs = analyzable.map(function (r) { return r.input; }), comps = analyzable.map(function (r) { return r.comp; });
+      cut.smallLo = quantile(inputs, th.smallInputBottom);
+      cut.expandInputLo = quantile(inputs, th.expandInputBottom);
+      cut.expandDensityHi = quantile(comps, 1 - th.expandDensityTop);
+      analyzable.forEach(function (r) {
+        r.small = r.input <= cut.smallLo;
+        r.expand = r.input <= cut.expandInputLo && r.comp >= cut.expandDensityHi;
+      });
+    }
+    // 분모가 작지 않은 행을 먼저, 그 안에서 복합 밀도가 높은 순
+    var expandList = analyzable.filter(function (r) { return r.expand; }).sort(function (a, b) {
+      return (a.small ? 1 : 0) - (b.small ? 1 : 0) || b.comp - a.comp || b.input - a.input;
+    });
+    var smallInfo = null;
+    if (cut.smallLo !== null) {
+      var kTop = Math.max(1, Math.round(analyzable.length * TOP_DENSITY));
+      var topDensity = analyzable.slice().sort(function (a, b) { return b.comp - a.comp || b.input - a.input; }).slice(0, kTop);
+      smallInfo = { k: kTop, smallInTop: topDensity.filter(function (r) { return r.small; }).length,
+        smallRows: analyzable.filter(function (r) { return r.small; }).length };
+    }
 
     // 유형 분포
     var typeNames = ['논문형', '균형형', '특허형', '성과 없음'];
@@ -301,12 +330,22 @@
     tot.avgInput = countCol && tot.analyzableCount > 0 ? tot.analyzableInput / tot.analyzableCount : null;
     tot.comp = (hasPaper || hasPatent) && tot.analyzableInput > 0 ? (tot.analyzablePaper + tot.analyzablePatent) / tot.analyzableInput * per : null;
 
-    return {
+    // 분석에 포함된 비율(전체 대비). 제외 행의 성과를 눈에 띄게 보이려고 따로 둔다.
+    function share(a, b) { return b > 0 ? a / b : null; }
+    var coverage = {
+      rows: share(tot.analyzable, tot.rows),
+      count: countCol ? share(tot.analyzableCount, tot.count) : null,
+      paper: hasPaper ? share(tot.analyzablePaper, tot.paper) : null,
+      patent: hasPatent ? share(tot.analyzablePatent, tot.patent) : null
+    };
+
+    var res = {
       ok: true, profile: profile, thresholds: th, units: units,
       flags: { hasPaper: hasPaper, hasPatent: hasPatent, hasBoth: hasBoth, hasCount: !!countCol, hasGroup: !!groupCol },
       cols: { input: inputCol, count: countCol, paper: paperCols, patent: patentCols, aux: auxCols, group: groupCol, year: yearCol },
       rows: rows, analyzable: analyzable, excluded: excluded, excludedWithOutput: excludedWithOutput,
-      cut: cut, flagged: flagged, typeCount: typeCount, conc: conc, groups: groups, years: years,
+      cut: cut, flagged: flagged, expandList: expandList, smallInfo: smallInfo, coverage: coverage,
+      typeCount: typeCount, conc: conc, groups: groups, years: years,
       checks: checks, dups: dups, badCells: badCells, totals: tot,
       allOk: checks.every(function (c) { return c.ok; }) && badCells === 0,
       disabled: [].concat(
@@ -317,6 +356,55 @@
         groupCol ? [] : ['그룹별 집계표(그룹 컬럼 없음)'],
         years ? [] : ['연도 추이(연도 값이 2개 미만)'])
     };
+    res.observations = observe(res);
+    return res;
+  }
+
+  /* ---------- 한눈에 보기: 규칙 기반 관찰문 ----------
+   * 고정 문장 틀에 숫자만 채운다. 원인을 말하지 않고 비교만 서술한다(평가·순위 문구 금지). */
+
+  function gap(d) { // d: 비율 차이(소수). 5%p 이상이면 크다/작다, 아니면 비슷하다고만 쓴다.
+    var p = Math.abs(d * 100).toFixed(1) + '%p';
+    return d >= 0.05 ? p + ' 큽니다' : d <= -0.05 ? p + ' 작습니다' : '비슷합니다(차이 ' + p + ')';
+  }
+
+  function observe(R) {
+    var t = R.totals, f = R.flags, u = R.units.input, c = R.coverage, o = [];
+    var scope = '분석 대상 ' + t.analyzable + '행은 전체 ' + t.rows + '행의 ' + pct(c.rows) + '이며';
+    var inc = [];
+    if (c.count !== null) inc.push('과제 수의 ' + pct(c.count));
+    if (c.paper !== null) inc.push('논문의 ' + pct(c.paper));
+    if (c.patent !== null) inc.push('특허의 ' + pct(c.patent));
+    scope += inc.length ? ' ' + inc.join(', ') + '를 포함합니다.' : ' 성과 컬럼은 없습니다.';
+    if (t.excludedWithOutput) scope += ' 투입이 0이거나 비어 제외한 ' + t.excluded + '행 중 ' + t.excludedWithOutput + '행에는 성과가 있으며(논문 ' + num(t.excludedPaper) + '건, 특허 ' + num(t.excludedPatent) + '건) 밀도를 계산할 수 없습니다.';
+    o.push({ key: 'scope', text: scope });
+
+    if (R.conc) {
+      var s = '투입 상위 ' + pct(R.thresholds.concentrationTop, 0) + '(' + R.conc.k + '행)가 투입의 ' + pct(R.conc.topShareInput) + '를 차지합니다.';
+      if (R.conc.topSharePaper !== null) s += ' 논문은 ' + pct(R.conc.topSharePaper) + '로, 투입 비중이 ' + gap(R.conc.topShareInput - R.conc.topSharePaper) + '.';
+      if (R.conc.topSharePatent !== null) s += ' 특허는 ' + pct(R.conc.topSharePatent) + '로, 투입 비중이 ' + gap(R.conc.topShareInput - R.conc.topSharePatent) + '.';
+      o.push({ key: 'concentration', text: s });
+    }
+
+    if (R.typeCount && t.analyzable) {
+      var names = Object.keys(R.typeCount), best = names.reduce(function (a, b) { return R.typeCount[b] > R.typeCount[a] ? b : a; });
+      o.push({ key: 'type', text: '행 수가 가장 많은 유형은 ' + best + '(' + R.typeCount[best] + '행, ' + pct(R.typeCount[best] / t.analyzable) + ')이며, 성과 없음은 ' + R.typeCount['성과 없음'] + '행(' + pct(R.typeCount['성과 없음'] / t.analyzable) + ')입니다.' });
+    }
+
+    if (R.cut.inputHi !== null) {
+      if (R.flagged.length) {
+        var fi = sum(R.flagged.map(function (r) { return r.input; })), fo = sum(R.flagged.map(function (r) { return r.paper + r.patent; }));
+        o.push({ key: 'flags', text: '점검 후보 ' + R.flagged.length + '행은 분석 대상 투입의 ' + pct(fi / t.analyzableInput) + '를 차지하고, 이 행들의 복합 밀도는 합쳐서 ' + num(fo / fi * R.units.densityPer) + '(전체 ' + num(t.comp) + ')입니다.' });
+      } else o.push({ key: 'flags', text: '점검 후보 조건(투입 상위 ' + pct(R.thresholds.flagInputTop, 0) + ', 복합 밀도 하위 ' + pct(R.thresholds.flagDensityBottom, 0) + ')에 맞는 행이 없습니다.' });
+
+      var ex = R.expandList, exSmall = ex.filter(function (r) { return r.small; }).length;
+      o.push({ key: 'expand', text: ex.length ? '확대 검토 후보 ' + ex.length + '행 중 분모 작음 표시가 없는 행은 ' + (ex.length - exSmall) + '행, 분모 작음 행은 ' + exSmall + '행입니다. 분모 작음 행은 밀도가 우연히 높게 나왔을 수 있습니다.'
+        : '확대 검토 후보 조건(투입 하위 ' + pct(R.thresholds.expandInputBottom, 0) + ', 복합 밀도 상위 ' + pct(R.thresholds.expandDensityTop, 0) + ')에 맞는 행이 없습니다.' });
+
+      var si = R.smallInfo;
+      o.push({ key: 'small', text: '복합 밀도 상위 ' + pct(TOP_DENSITY, 0) + '(' + si.k + '행) 중 ' + si.smallInTop + '행은 투입 하위 ' + pct(R.thresholds.smallInputBottom, 0) + '(≤ ' + num(R.cut.smallLo) + u + ')인 분모 작음 행입니다.' });
+    }
+    return o;
   }
 
   /* ---------- 내보내기 ---------- */
@@ -347,7 +435,7 @@
     if (f.hasPatent) mh.push('특허 밀도');
     if (f.hasPaper || f.hasPatent) mh.push('복합 밀도');
     if (f.hasBoth) { mh.push('논문 비중'); mh.push('유형'); }
-    mh.push('점검 후보');
+    mh.push('점검 후보'); mh.push('분모 작음'); mh.push('확대 검토 후보');
     files['metrics.csv'] = toCSV(mh, R.analyzable.map(function (r) {
       var x = [r.year, r.group, r.label, r.count, r.input];
       if (f.hasPaper) x.push(r.paper);
@@ -357,7 +445,7 @@
       if (f.hasPatent) x.push(r4(r.patentDensity));
       if (f.hasPaper || f.hasPatent) x.push(r4(r.comp));
       if (f.hasBoth) { x.push(r4(r.paperShare)); x.push(r.type); }
-      x.push(r.flag ? 'Y' : '');
+      x.push(r.flag ? 'Y' : ''); x.push(r.small ? 'Y' : ''); x.push(r.expand ? 'Y' : '');
       return x;
     }));
 
@@ -371,6 +459,15 @@
       if (f.hasPaper) x.push(r.paper);
       if (f.hasPatent) x.push(r.patent);
       x.push(r4(r.comp));
+      return x;
+    }));
+
+    // expand.csv: 확대 검토 후보(분모 작음이 아닌 행 먼저)
+    files['expand.csv'] = toCSV(fh.concat(['분모 작음']), R.expandList.map(function (r) {
+      var x = [r.year, r.group, r.label, r.count, r.input];
+      if (f.hasPaper) x.push(r.paper);
+      if (f.hasPatent) x.push(r.patent);
+      x.push(r4(r.comp)); x.push(r.small ? 'Y' : '');
       return x;
     }));
 
@@ -410,9 +507,9 @@
 
     // run_meta.json (결정적 출력을 위해 시각은 meta로 받을 때만 기록)
     var rm = {
-      tool: 'rnd-profiler', profile: R.profile.id, profile_name: R.profile.name,
+      tool: 'rnd-profiler', tool_version: VERSION, profile: R.profile.id, profile_name: R.profile.name,
       input_file: meta.inputName || null, rows: R.totals.rows, analyzable_rows: R.totals.analyzable, excluded_rows: R.totals.excluded,
-      thresholds: R.thresholds, cutoffs: { input_ge: R.cut.inputHi, density_le: R.cut.densityLo },
+      thresholds: R.thresholds, cutoffs: { input_ge: R.cut.inputHi, density_le: R.cut.densityLo, small_input_le: R.cut.smallLo, expand_input_le: R.cut.expandInputLo, expand_density_ge: R.cut.expandDensityHi },
       all_checks_ok: R.allOk, disabled_features: R.disabled
     };
     if (meta.generatedAt) rm.generated_at = meta.generatedAt;
@@ -429,6 +526,12 @@
     L.push('- 프로필: ' + R.profile.name + ' (`' + R.profile.id + '`)');
     if (meta.inputName) L.push('- 입력 파일: ' + meta.inputName);
     L.push('- 성격: 탐색적 선별 자료이며 순위·평가가 아닙니다. 아래 한계 항목을 함께 읽어야 합니다.');
+    L.push('');
+    L.push('## 한눈에 보기');
+    L.push('');
+    L.push('규칙으로 채운 문장이며 숫자 비교만 적었습니다. 원인이나 우열은 판단하지 않았습니다.');
+    L.push('');
+    R.observations.forEach(function (ob) { L.push('- ' + ob.text); });
     L.push('');
     L.push('## 1. 검산');
     L.push('');
@@ -483,8 +586,22 @@
       } else L.push('해당 행 없음.');
       L.push('');
     }
+    if (R.cut.expandInputLo !== null) {
+      L.push('## 6. 확대 검토 후보');
+      L.push('');
+      L.push('기준: 투입 하위 ' + pct(R.thresholds.expandInputBottom, 0) + '(≤ ' + num(R.cut.expandInputLo) + u + ') 이면서 복합 밀도 상위 ' + pct(R.thresholds.expandDensityTop, 0) + '(≥ ' + num(R.cut.expandDensityHi) + '). 확대를 권하는 것이 아니라 추가 확인 대상입니다. 분모 작음은 투입 하위 ' + pct(R.thresholds.smallInputBottom, 0) + '(≤ ' + num(R.cut.smallLo) + u + ')이며, 이 행의 밀도는 우연히 높게 나왔을 수 있어 뒤에 두었습니다.');
+      L.push('');
+      if (R.expandList.length) {
+        L.push('| 그룹 | 항목 | 투입(' + u + ') | 논문 | 특허 | 복합 밀도 | 분모 작음 |');
+        L.push('|---|---|---:|---:|---:|---:|---|');
+        R.expandList.forEach(function (r) {
+          L.push('| ' + mdCell(r.group) + ' | ' + mdCell(r.label) + ' | ' + num(r.input) + ' | ' + num(r.paper) + ' | ' + num(r.patent) + ' | ' + num(r.comp) + ' | ' + (r.small ? 'Y' : '') + ' |');
+        });
+      } else L.push('해당 행 없음.');
+      L.push('');
+    }
     if (R.years) {
-      L.push('## 6. 연도 추이');
+      L.push('## 7. 연도 추이');
       L.push('');
       L.push('| 연도 | 행 수 | 투입(' + u + ') | 논문 | 특허 | 복합 밀도 |');
       L.push('|---|---:|---:|---:|---:|---:|');
@@ -505,7 +622,7 @@
   return {
     decodeBuffer: decodeBuffer, parseCSV: parseCSV, parseTable: parseTable, toNum: toNum,
     quantile: quantile, gini: gini, profileColumns: profileColumns, suggestProfiles: suggestProfiles,
-    analyze: analyze, buildOutputs: buildOutputs, toCSV: toCSV, DEFAULT_TH: DEFAULT_TH,
+    analyze: analyze, buildOutputs: buildOutputs, toCSV: toCSV, DEFAULT_TH: DEFAULT_TH, VERSION: VERSION,
     fmt: { num: num, pct: pct, r4: r4 }
   };
 });

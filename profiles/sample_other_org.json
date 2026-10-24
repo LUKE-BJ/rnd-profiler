@@ -18,6 +18,9 @@
     "typePatent": 0.35,
     "flagInputTop": 0.25,
     "flagDensityBottom": 0.40,
-    "concentrationTop": 0.10
+    "concentrationTop": 0.10,
+    "smallInputBottom": 0.25,
+    "expandInputBottom": 0.50,
+    "expandDensityTop": 0.25
   }
 }

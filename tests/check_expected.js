@@ -60,6 +60,36 @@ base.columns.input = ['없는컬럼'];
 const E = C.analyze(tbl, base);
 ok(!E.ok && E.missing.indexOf('없는컬럼') >= 0, '없는 컬럼은 오류로 안내');
 
+// v0.2: 분모 작음·확대 검토 후보·빠진 것·관찰문 — 손으로 계산한 작은 표 (투입 10..80, 논문 5,1,3,2,4,0,6,8, 마지막 Z행은 투입 0)
+// 분위수(exclusive, 위치 p*(n+1), n=8): 투입 하위 25% -> 22.5, 하위 50% -> 45, 밀도 상위 25%(0.75) -> 0.1
+const hand = [['사업', '투입', '논문', '특허'], ['A', '10', '5', '0'], ['B', '20', '1', '0'], ['C', '30', '3', '0'], ['D', '40', '2', '0'],
+  ['E', '50', '4', '0'], ['F', '60', '0', '0'], ['G', '70', '6', '0'], ['H', '80', '8', '0'], ['Z', '0', '2', '1']];
+const hp = { id: 'hand', name: '손계산', columns: { input: '투입', paper: ['논문'], patent: ['특허'], label: ['사업'] }, units: { input: '억원', densityPer: 1, densityLabel: '투입 1억원당' } };
+const H = C.analyze(hand, hp);
+ok(H.ok && H.cut.smallLo === 22.5 && H.cut.expandInputLo === 45 && Math.abs(H.cut.expandDensityHi - 0.1) < 1e-12, '손계산: 분모 작음 22.5, 확대 투입 45, 확대 밀도 0.1');
+ok(H.analyzable.filter(r => r.small).map(r => r.label).join() === 'A,B', '손계산: 분모 작음 행 A,B');
+ok(H.expandList.map(r => r.label).join() === 'C,A' && H.expandList[1].small === true, '손계산: 확대 검토 후보 C,A (분모 작음 A는 뒤)');
+ok(H.flagged.length === 0 && H.analyzable.every(r => !(r.flag && r.expand)), '손계산: 점검 후보 없음, 점검과 확대는 겹치지 않음');
+ok(Math.abs(H.coverage.rows - 8 / 9) < 1e-12 && Math.abs(H.coverage.paper - 29 / 31) < 1e-12 && Math.abs(H.coverage.patent - 0) < 1e-12 && H.totals.excludedWithOutput === 1, '손계산: 분석 포함 비율 행 8/9, 논문 29/31, 제외 행 성과 1행');
+ok(H.smallInfo.k === 1 && H.smallInfo.smallInTop === 1 && H.smallInfo.smallRows === 2, '손계산: 밀도 상위 1행(A)은 분모 작음');
+ok(H.observations.map(o => o.key).join() === 'scope,concentration,type,flags,expand,small', '손계산: 관찰문 항목 순서');
+
+// KEIT: 분모 작음·확대 후보를 테스트 안에서 따로 다시 계산해 대조(코어 코드를 쓰지 않는 단순 반복문)
+if (K) {
+  const ins = K.analyzable.map(r => r.input).sort((a, b) => a - b), n = ins.length;
+  const qx = p => { const pos = p * (n + 1); if (pos <= 1) return ins[0]; if (pos >= n) return ins[n - 1]; const lo = Math.floor(pos); return ins[lo - 1] + (pos - lo) * (ins[lo] - ins[lo - 1]); };
+  const smallN = ins.filter(v => v <= qx(0.25)).length;
+  ok(K.smallInfo.smallRows === smallN && K.cut.smallLo === qx(0.25), 'KEIT 분모 작음 행 수가 따로 센 값과 같음 (' + smallN + '행)');
+  ok(K.expandList.every(r => r.input <= K.cut.expandInputLo && r.comp >= K.cut.expandDensityHi), 'KEIT 확대 검토 후보 조건 일치');
+  ok(K.expandList.length === K.analyzable.filter(r => r.input <= K.cut.expandInputLo && r.comp >= K.cut.expandDensityHi).length, 'KEIT 확대 검토 후보 수 일치 (' + K.expandList.length + '행)');
+  const firstSmall = K.expandList.findIndex(r => r.small);
+  ok(firstSmall === -1 || K.expandList.slice(firstSmall).every(r => r.small), 'KEIT 확대 후보에서 분모 작음 행이 뒤에 모임');
+  ok(Math.abs(K.coverage.rows - 107 / 268) < 1e-12 && Math.abs(K.coverage.count - 4415 / 6288) < 1e-12 && Math.abs(K.coverage.paper - 3563 / 3753) < 1e-12 && Math.abs(K.coverage.patent - 1607 / 1815) < 1e-12, 'KEIT 분석 포함 비율 107/268, 과제 4415/6288, 논문 3563/3753, 특허 1607/1815');
+  const txt = K.observations.map(o => o.text).join('\n');
+  ok(txt.includes('68.6%') && txt.includes('56.6%') && txt.includes('57.4%'), 'KEIT 관찰문에 상위 10% 투입·논문·특허 비중 포함');
+  ok(!/합격|불합격|우수|부진|문제|실패/.test(txt), '관찰문에 평가·판정 어휘 없음');
+}
+
 // 파서
 ok(JSON.stringify(C.parseCSV('a,b\n"1,182",x\n')) === JSON.stringify([['a', 'b'], ['1,182', 'x']]), 'CSV 따옴표 쉼표 처리');
 ok(C.toNum('1,182') === 1182 && C.toNum('') === null && isNaN(C.toNum('abc')), '숫자 변환');

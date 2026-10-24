@@ -1,5 +1,6 @@
 {
   "tool": "rnd-profiler",
+  "tool_version": "0.2.0",
   "profile": "keit_performance",
   "profile_name": "KEIT 산업기술 연구개발 성과조사정보",
   "input_file": "input_keit_2024.csv",
@@ -11,11 +12,17 @@
     "typePatent": 0.35,
     "flagInputTop": 0.25,
     "flagDensityBottom": 0.4,
-    "concentrationTop": 0.1
+    "concentrationTop": 0.1,
+    "smallInputBottom": 0.25,
+    "expandInputBottom": 0.5,
+    "expandDensityTop": 0.25
   },
   "cutoffs": {
     "input_ge": 80,
-    "density_le": 2.248055315471046
+    "density_le": 2.248055315471046,
+    "small_input_le": 13,
+    "expand_input_le": 28,
+    "expand_density_ge": 5.939597315436242
   },
   "all_checks_ok": true,
   "disabled_features": [
