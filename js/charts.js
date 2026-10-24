@@ -48,6 +48,12 @@
       s += '<line class="cutline" x1="' + x0 + '" x2="' + x0 + '" y1="' + m.t + '" y2="' + (H - m.b) + '"/><line class="cutline" x1="' + x0 + '" x2="' + (W - m.r) + '" y1="' + y0 + '" y2="' + y0 + '"/>';
       s += '<text class="zlabel" x="' + (W - m.r - 6) + '" y="' + (H - m.b - 8) + '" text-anchor="end">점검 구역</text>';
     }
+    if (R.cut.expandInputLo !== null && R.cut.expandInputLo > xmin) {
+      var xe = Math.min(X(R.cut.expandInputLo), W - m.r), ye = Y(R.cut.expandDensityHi);
+      s += '<rect class="zone" x="' + m.l + '" y="' + m.t + '" width="' + (xe - m.l) + '" height="' + Math.max(0, ye - m.t) + '" style="color:var(--s3)"/>';
+      s += '<line class="cutline" x1="' + xe + '" x2="' + xe + '" y1="' + m.t + '" y2="' + ye + '"/><line class="cutline" x1="' + m.l + '" x2="' + xe + '" y1="' + ye + '" y2="' + ye + '"/>';
+      s += '<text class="zlabel" x="' + (m.l + 6) + '" y="' + (m.t + 14) + '">확대 검토 구역</text>';
+    }
     s += '<line class="axis" x1="' + m.l + '" x2="' + (W - m.r) + '" y1="' + (H - m.b) + '" y2="' + (H - m.b) + '"/><line class="axis" x1="' + m.l + '" x2="' + m.l + '" y1="' + m.t + '" y2="' + (H - m.b) + '"/>';
     s += '<text class="ttl" x="' + ((W + m.l) / 2) + '" y="' + (H - 8) + '" text-anchor="middle">투입 ' + esc(R.units.input) + ' (로그 눈금)</text>';
     s += '<text class="ttl" transform="translate(13,' + ((H - m.b + m.t) / 2) + ') rotate(-90)" text-anchor="middle">복합 밀도 (' + esc(R.units.densityLabel) + ' 건, 완만한 로그 눈금)</text>';
@@ -58,8 +64,9 @@
     });
     // 성과 없음(회색)을 먼저 그려 색 있는 점이 위로 오게 한다
     pts.slice().sort(function (a, b) { return (a.c === 'sn' ? 0 : 1) - (b.c === 'sn' ? 0 : 1); }).forEach(function (p) {
-      s += '<circle class="pt ' + p.c + '" cx="' + p.x + '" cy="' + p.y + '" r="4.5"/>';
+      s += '<circle class="pt ' + p.c + (p.r.small ? ' small' : '') + '" cx="' + p.x + '" cy="' + p.y + '" r="' + (p.r.small ? 3.2 : 4.5) + '"/>';
       if (p.r.flag) s += '<circle class="ring" cx="' + p.x + '" cy="' + p.y + '" r="8"/>';
+      if (p.r.expand) s += '<circle class="ring dash" cx="' + p.x + '" cy="' + p.y + '" r="8"/>';
     });
     s += '<circle class="hl" r="9" cx="-50" cy="-50" id="sc-hl"/></svg>';
     host.innerHTML = s; host.appendChild(tipFor(host));
@@ -72,7 +79,7 @@
       hl.setAttribute('cx', best.x); hl.setAttribute('cy', best.y);
       var r = best.r;
       showTip(host, '<b>' + esc(r.label) + '</b><br>' + (r.group ? esc(r.group) + '<br>' : '') + '투입 ' + fmt(r.input) + R.units.input +
-        '<br>논문 ' + fmt(r.paper, 0) + ' · 특허 ' + fmt(r.patent, 0) + '<br>복합 밀도 ' + fmt(r.comp, 2) + (r.type ? '<br>' + r.type : '') + (r.flag ? '<br>점검 후보' : ''), e.clientX, e.clientY);
+        '<br>논문 ' + fmt(r.paper, 0) + ' · 특허 ' + fmt(r.patent, 0) + '<br>복합 밀도 ' + fmt(r.comp, 2) + (r.type ? '<br>' + r.type : '') + (r.flag ? '<br>점검 후보' : '') + (r.expand ? '<br>확대 검토 후보' : '') + (r.small ? '<br>분모 작음' : ''), e.clientX, e.clientY);
     });
     svg.addEventListener('mouseleave', function () { hl.setAttribute('cx', -50); hideTip(host); });
   }

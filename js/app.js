@@ -39,7 +39,8 @@
   }
 
   var TH_FIELDS = [['typePaper', '논문형: 논문 비중 이상 (%)'], ['typePatent', '특허형: 논문 비중 이하 (%)'], ['flagInputTop', '점검: 투입 상위 (%)'],
-    ['flagDensityBottom', '점검: 복합 밀도 하위 (%)'], ['concentrationTop', '집중도: 상위 행 (%)']];
+    ['flagDensityBottom', '점검: 복합 밀도 하위 (%)'], ['concentrationTop', '집중도: 상위 행 (%)'],
+    ['smallInputBottom', '분모 작음: 투입 하위 (%)'], ['expandInputBottom', '확대 검토: 투입 하위 (%)'], ['expandDensityTop', '확대 검토: 복합 밀도 상위 (%)']];
   function resetThresholdInputs() {
     var th = Object.assign({}, Core.DEFAULT_TH, curProfile().thresholds || {});
     $('th').innerHTML = TH_FIELDS.map(function (f) {
@@ -126,7 +127,7 @@
     setMsg(R.allOk ? 'ok' : 'warn', R.allOk ? '분석을 마쳤습니다. 검산이 모두 일치합니다.' : '분석은 했지만 검산에 불일치가 있습니다. 아래 검산 표를 확인하세요.');
     $('result').classList.remove('hidden');
     render(R);
-    $('sec-check').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    $('sec-glance').scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
 
   /* ---------- 표 보조 ---------- */
@@ -135,7 +136,7 @@
     var h = '<div class="tw"><table><thead><tr>' + cols.map(function (c) {
       return '<th class="' + (c.n ? 'n ' : '') + (c.l ? 'l ' : '') + (c.sort ? 'sort' : '') + '"' + (c.sort ? ' data-k="' + c.key + '" tabindex="0"' : '') + '>' + esc(c.h) + (extra && extra.sortKey === c.key ? (extra.sortDir > 0 ? ' ▲' : ' ▼') : '') + '</th>';
     }).join('') + '</tr></thead><tbody>' + rows.map(function (r) {
-      return '<tr' + (r.flag ? ' class="flag"' : '') + '>' + cols.map(function (c) { return '<td class="' + (c.n ? 'n ' : '') + (c.l ? 'l' : '') + '">' + c.f(r) + '</td>'; }).join('') + '</tr>';
+      return '<tr' + (r.flag ? ' class="flag"' : r.expand ? ' class="expand"' : '') + '>' + cols.map(function (c) { return '<td class="' + (c.n ? 'n ' : '') + (c.l ? 'l' : '') + '">' + c.f(r) + '</td>'; }).join('') + '</tr>';
     }).join('') + '</tbody></table></div>';
     return h;
   }
@@ -144,7 +145,7 @@
     var c = { '논문형': 's1', '균형형': 's2', '특허형': 's3', '성과 없음': 'sn' }[t];
     return t ? '<span class="tag"><i style="background:var(--' + c + ')"></i>' + esc(t) + '</span>' : '';
   }
-  function cols(R, withType) {
+  function cols(R, withType, withSmall) {
     var u = R.units.input, f = R.flags, c = [];
     if (R.cols.year && R.years) c.push({ h: '연도', key: 'year', f: function (r) { return esc(r.year); }, sort: true });
     if (f.hasGroup) c.push({ h: '그룹', key: 'group', f: function (r) { return esc(r.group); }, l: true, sort: true });
@@ -157,6 +158,7 @@
       if (f.hasPaper || f.hasPatent) c.push({ h: '복합 밀도', key: 'comp', n: 1, f: function (r) { return N(r.comp); }, sort: true });
       if (f.hasBoth) c.push({ h: '유형', key: 'type', f: function (r) { return tagHtml(r.type); }, sort: true });
     }
+    if (withSmall) c.push({ h: '표시', key: 'small', f: function (r) { return r.small ? '<span class="tag small">분모 작음</span>' : ''; }, sort: true });
     return c;
   }
 
@@ -164,6 +166,23 @@
 
   function render(R) {
     var t = R.totals, u = R.units.input, f = R.flags;
+
+    // 0. 한눈에 보기: 검산 결과를 머리에 붙여, 확인되지 않은 숫자를 그대로 읽지 않게 한다
+    $('sec-glance').innerHTML = '<h2>한눈에 보기</h2>' +
+      '<p class="sub">규칙으로 채운 문장입니다. 숫자 비교만 적었고 원인이나 우열은 판단하지 않았습니다.</p>' +
+      '<div class="msg ' + (R.allOk ? 'ok' : 'err') + '" style="margin-bottom:10px">' + (R.allOk ? '✓ 검산이 모두 일치합니다.' : '✕ 검산에 불일치가 있습니다. 아래 수치를 쓰기 전에 검산 표를 먼저 확인하세요.') + ' <a href="#sec-check">검산 표 보기</a></div>' +
+      '<ul class="obs">' + R.observations.filter(function (o) { return o.key !== 'scope'; }).map(function (o) { return '<li>' + esc(o.text) + '</li>'; }).join('') + '</ul>';
+
+    // 0-2. 빠진 것: 분석에 들어오지 못한 몫
+    var cv = R.coverage, mrows = [{ k: '행 수', all: t.rows, inc: t.analyzable, exc: t.excluded, sh: cv.rows }];
+    if (f.hasCount) mrows.push({ k: '과제 수', all: t.count, inc: t.analyzableCount, exc: t.excludedCount, sh: cv.count });
+    if (f.hasPaper) mrows.push({ k: '논문', all: t.paper, inc: t.analyzablePaper, exc: t.excludedPaper, sh: cv.paper });
+    if (f.hasPatent) mrows.push({ k: '특허', all: t.patent, inc: t.analyzablePatent, exc: t.excludedPatent, sh: cv.patent });
+    $('sec-missing').innerHTML = '<h2>빠진 것</h2><p class="sub">투입이 0이거나 비어 있으면 밀도를 계산할 수 없어 지표에서 빠집니다. 아래 "분석 포함 비율"이 낮을수록 이 결과는 전체의 일부만 본 것입니다.</p>' +
+      '<div class="msg ' + (t.excludedWithOutput ? 'warn' : 'ok') + '" style="margin-bottom:10px">' + esc(R.observations[0].text) + (t.excludedWithOutput ? ' <a href="#sec-excl">제외 행 보기</a>' : '') + '</div>' +
+      table([{ h: '구분', f: function (r) { return esc(r.k); }, l: true }, { h: '전체', n: 1, f: function (r) { return N(r.all); } },
+        { h: '분석 포함', n: 1, f: function (r) { return N(r.inc); } }, { h: '제외', n: 1, f: function (r) { return N(r.exc); } },
+        { h: '분석 포함 비율', n: 1, f: function (r) { return F.pct(r.sh); } }], mrows);
 
     // 1. 검산
     var inp = R.checks.filter(function (c) { return c.item === R.cols.input; })[0];
@@ -193,8 +212,8 @@
     // 3. 산점도
     var sp = $('sec-scatter');
     if (R.cut.inputHi !== null) {
-      sp.innerHTML = '<h2>4. 투입과 성과 밀도</h2><p class="sub">한 점은 한 행입니다. 오른쪽 아래(투입은 크고 밀도는 낮은 구역)의 고리 표시 행이 점검 후보입니다. 마우스를 올리면 값이 보입니다.</p>' +
-        (f.hasBoth ? '<div class="legend"><span><i style="background:var(--s1)"></i>논문형</span><span><i style="background:var(--s2)"></i>균형형</span><span><i style="background:var(--s3)"></i>특허형</span><span><i style="background:var(--sn)"></i>성과 없음</span><span><i class="ringkey"></i>점검 후보</span></div>' : '<div class="legend"><span><i class="ringkey"></i>점검 후보</span></div>') +
+      sp.innerHTML = '<h2>4. 투입과 성과 밀도</h2><p class="sub">한 점은 한 행입니다. 오른쪽 아래(투입은 크고 밀도는 낮은 구역)의 실선 고리 행이 점검 후보, 왼쪽 위(투입은 작고 밀도는 높은 구역)의 점선 고리 행이 확대 검토 후보입니다. 작은 점은 투입이 작아 밀도가 흔들릴 수 있는 \'분모 작음\' 행입니다. 마우스를 올리면 값이 보입니다.</p>' +
+        (f.hasBoth ? '<div class="legend"><span><i style="background:var(--s1)"></i>논문형</span><span><i style="background:var(--s2)"></i>균형형</span><span><i style="background:var(--s3)"></i>특허형</span><span><i style="background:var(--sn)"></i>성과 없음</span><span><i class="ringkey"></i>점검 후보</span><span><i class="ringkey dash"></i>확대 검토 후보</span><span><i class="smallkey"></i>분모 작음</span></div>' : '<div class="legend"><span><i class="ringkey"></i>점검 후보</span><span><i class="ringkey dash"></i>확대 검토 후보</span><span><i class="smallkey"></i>분모 작음</span></div>') +
         '<div class="chart" id="ch-sc"></div>';
       Charts.scatter($('ch-sc'), R);
     } else sp.innerHTML = '<h2>4. 투입과 성과 밀도</h2><div class="msg warn">논문·특허 컬럼이 없어 이 그래프를 만들 수 없습니다.</div>';
@@ -214,6 +233,11 @@
       '<p class="sub">투입 상위 ' + F.pct(R.thresholds.flagInputTop, 0) + '(≥ ' + N(R.cut.inputHi) + u + ')이면서 복합 밀도 하위 ' + F.pct(R.thresholds.flagDensityBottom, 0) + '(≤ ' + N(R.cut.densityLo) + '). 부실 판정이 아니라 사업 성격과 성과 시차를 먼저 확인할 대상입니다.</p>' +
       (R.flagged.length ? table(cols(R, true), R.flagged) : '<div class="msg ok">조건에 맞는 행이 없습니다.</div>'));
 
+    // 6-2. 확대 검토 후보
+    $('sec-expand').innerHTML = '<h2>7. 확대 검토 후보</h2>' + (R.cut.expandInputLo === null ? '<div class="msg warn">논문·특허 컬럼이 없어 계산하지 않았습니다.</div>' :
+      '<p class="sub">투입 하위 ' + F.pct(R.thresholds.expandInputBottom, 0) + '(≤ ' + N(R.cut.expandInputLo) + u + ')이면서 복합 밀도 상위 ' + F.pct(R.thresholds.expandDensityTop, 0) + '(≥ ' + N(R.cut.expandDensityHi) + '). 확대를 권하는 것이 아니라 더 확인할 대상입니다. 분모 작음(투입 하위 ' + F.pct(R.thresholds.smallInputBottom, 0) + ', ≤ ' + N(R.cut.smallLo) + u + ') 행은 밀도가 우연히 높게 나왔을 수 있어 뒤에 두었습니다.</p>' +
+      (R.expandList.length ? table(cols(R, true, true), R.expandList) : '<div class="msg ok">조건에 맞는 행이 없습니다.</div>'));
+
     // 6. 집계표
     var gs = R.groups;
     if (gs) {
@@ -224,10 +248,10 @@
       if (f.hasPaper) gc.push({ h: '논문', n: 1, f: function (r) { return N(r.paper); } });
       if (f.hasPatent) gc.push({ h: '특허', n: 1, f: function (r) { return N(r.patent); } });
       if (R.flags.hasPaper || R.flags.hasPatent) gc.push({ h: '복합 밀도', n: 1, f: function (r) { return r.comp === null ? '-' : N(r.comp); } });
-      $('sec-groups').innerHTML = '<h2>7. 집계표 (' + esc(R.cols.group) + '별)</h2><p class="sub">제외 행도 합계에는 포함한 집계입니다. 투입 순으로 정렬했고 합계는 검산 표의 "집계표" 열과 같습니다.</p>' +
+      $('sec-groups').innerHTML = '<h2>8. 집계표 (' + esc(R.cols.group) + '별)</h2><p class="sub">제외 행도 합계에는 포함한 집계입니다. 투입 순으로 정렬했고 합계는 검산 표의 "집계표" 열과 같습니다.</p>' +
         table(gc, show) + (gs.length > 15 ? '<div style="margin-top:10px"><button type="button" id="g-more">' + (S.groupsAll ? '상위 15개만 보기' : '전체 ' + gs.length + '개 보기') + '</button></div>' : '');
       var gm = $('g-more'); if (gm) gm.onclick = function () { S.groupsAll = !S.groupsAll; render(R); };
-    } else $('sec-groups').innerHTML = '<h2>7. 집계표</h2><div class="msg warn">그룹 컬럼이 지정되지 않아 집계표를 만들지 않았습니다.</div>';
+    } else $('sec-groups').innerHTML = '<h2>8. 집계표</h2><div class="msg warn">그룹 컬럼이 지정되지 않아 집계표를 만들지 않았습니다.</div>';
 
     // 7. 연도
     var ys = $('sec-years');
@@ -242,14 +266,14 @@
     renderAll(R);
 
     // 9. 제외 행
-    $('sec-excl').innerHTML = '<h2>9. 제외 행 (투입 0·빈 칸)</h2><p class="sub">밀도를 계산할 수 없어 지표에서 뺀 행입니다. 성과가 있는 행은 사업 간 비교 전에 별도로 해석해야 합니다.</p>' +
+    $('sec-excl').innerHTML = '<h2>10. 제외 행 (투입 0·빈 칸)</h2><p class="sub">밀도를 계산할 수 없어 지표에서 뺀 행입니다. 성과가 있는 행은 사업 간 비교 전에 별도로 해석해야 합니다.</p>' +
       (R.excluded.length ? table(cols(R, false).filter(function (c) { return c.key !== 'year' || true; }), S.showExcl ? R.excluded : R.excluded.slice(0, 20)) +
         (R.excluded.length > 20 ? '<div style="margin-top:10px"><button type="button" id="e-more">' + (S.showExcl ? '20행만 보기' : '전체 ' + R.excluded.length + '행 보기') + '</button></div>' : '') : '<div class="msg ok">제외된 행이 없습니다.</div>');
     var em = $('e-more'); if (em) em.onclick = function () { S.showExcl = !S.showExcl; render(R); };
 
     // 10. 저장
     var names = Object.keys(S.files);
-    $('sec-save').innerHTML = '<h2>10. 저장</h2><p class="sub">결과는 이 페이지에서 파일로 내려받습니다. 정적 페이지는 컴퓨터의 폴더에 직접 쓸 수 없으므로 압축 파일(out 폴더 구성)이나 폴더 선택 저장을 제공합니다.</p>' +
+    $('sec-save').innerHTML = '<h2>11. 저장</h2><p class="sub">결과는 이 페이지에서 파일로 내려받습니다. 정적 페이지는 컴퓨터의 폴더에 직접 쓸 수 없으므로 압축 파일(out 폴더 구성)이나 폴더 선택 저장을 제공합니다.</p>' +
       '<div class="row"><button type="button" class="primary" id="s-zip">모두 받기 (out.zip)</button>' +
       (window.showDirectoryPicker ? '<button type="button" id="s-dir">폴더에 저장 (out/)</button>' : '') +
       '<button type="button" id="s-copy">요약(마크다운) 복사</button></div>' +
@@ -268,6 +292,7 @@
     // 11. 한계
     $('sec-limits').innerHTML = '<h2>해석상 한계</h2><ul class="limits">' +
       '<li>성과는 투입 이후 시차를 두고 나타나므로 같은 해 투입과 성과를 바로 대응시키면 왜곡될 수 있습니다.</li>' +
+      '<li>투입이 작은 행은 논문·특허 몇 건만 늘어도 밀도가 크게 달라집니다. 확대 검토 후보는 분모 작음 표시를 함께 읽어야 합니다.</li>' +
       '<li>사업 목적(원천·사업화·인프라 등)이 달라 논문·특허 밀도를 사업 간 우열로 읽을 수 없습니다.</li>' +
       '<li>집계 자료이므로 개별 과제의 성과를 추정할 수 없습니다.</li>' +
       '<li>입력 자료가 다루는 범위(기관·사업·연도)에만 해당하며 국가 R&amp;D 전체를 대표하지 않습니다.</li></ul>';
@@ -275,7 +300,7 @@
   }
 
   function renderAll(R) {
-    var cs = cols(R, true), rows = R.analyzable.slice();
+    var cs = cols(R, true, true), rows = R.analyzable.slice();
     if (S.sortKey) {
       var k = S.sortKey, d = S.sortDir;
       rows.sort(function (a, b) {
@@ -286,7 +311,7 @@
     }
     var shown = S.showAll ? rows : rows.slice(0, 30);
     rows.forEach(function (r) { r.flag = r.flag; });
-    $('sec-all').innerHTML = '<h2>8. 전체 지표표</h2><p class="sub">머리글을 누르면 정렬됩니다. 왼쪽 주황색 막대는 점검 후보입니다.</p>' +
+    $('sec-all').innerHTML = '<h2>9. 전체 지표표</h2><p class="sub">머리글을 누르면 정렬됩니다. 왼쪽 주황색 막대는 점검 후보, 청록색 막대는 확대 검토 후보입니다. 분모 작음은 투입이 작아 밀도가 흔들릴 수 있는 행입니다.</p>' +
       table(cs, shown, { sortKey: S.sortKey, sortDir: S.sortDir }) +
       (rows.length > 30 ? '<div style="margin-top:10px"><button type="button" id="a-more">' + (S.showAll ? '30행만 보기' : '전체 ' + rows.length + '행 보기') + '</button></div>' : '');
     var am = $('a-more'); if (am) am.onclick = function () { S.showAll = !S.showAll; renderAll(R); bindSort(); };
@@ -356,6 +381,7 @@
   }
 
   function init() {
+    $('ver').textContent = 'v' + Core.VERSION + ' · 변경 기록은 CHANGELOG.md';
     fillProfileSelect();
     $('profile').addEventListener('change', function () {
       resetThresholdInputs();
