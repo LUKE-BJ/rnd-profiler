@@ -1,0 +1,22 @@
+# 비밀값 (이 도구에는 없지만 실수로 들어가지 않게)
+.env
+.env.*
+!.env.example
+
+# 운영체제 자동 생성 파일
+.DS_Store
+Thumbs.db
+
+# 오피스·편집기 임시 파일
+~$*
+*.tmp
+*.bak
+
+# 내 컴퓨터에서만 쓰는 Claude 로컬 설정
+.claude/settings.local.json
+
+# 의존 패키지 (이 도구는 설치할 패키지가 없음)
+node_modules/
+
+# 작업 맥락 파일: 개인 소속·말투 지시가 있어 공개하지 않음
+CLAUDE.md

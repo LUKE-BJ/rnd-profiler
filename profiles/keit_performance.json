@@ -1,0 +1,23 @@
+{
+  "id": "keit_performance",
+  "name": "KEIT 산업기술 연구개발 성과조사정보",
+  "description": "공공데이터포털 15105259 (한국산업기술기획평가원). 내역사업 단위 집계 자료.",
+  "columns": {
+    "year": "성과년도",
+    "group": "세부사업명",
+    "label": ["내역사업명"],
+    "count": "전체과제수",
+    "input": "지급 정부출연금(억원)",
+    "paper": ["과학인용색인(SCI) 논문(건)", "과학인용색인 외(비SCI) 논문(건)"],
+    "patent": ["특허등록(건)"],
+    "aux": ["특허출원(건)", "기술수준향상(퍼센트)", "기술격차(년)"]
+  },
+  "units": { "input": "억원", "densityPer": 10, "densityLabel": "출연금 10억원당" },
+  "thresholds": {
+    "typePaper": 0.65,
+    "typePatent": 0.35,
+    "flagInputTop": 0.25,
+    "flagDensityBottom": 0.40,
+    "concentrationTop": 0.10
+  }
+}

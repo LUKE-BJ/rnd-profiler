@@ -1,0 +1,68 @@
+/* 실행: node tests/check_expected.js
+ * 1) 예시 입력을 처리해 out/<프로필>/ 에 저장한다.
+ * 2) examples/expected/<프로필>/ 의 기대 결과와 바이트 단위로 비교한다.
+ * 3) 파이썬으로 따로 계산한 핵심 수치와 대조한다. (--update 를 주면 기대 결과를 갱신) */
+const fs = require('fs'), path = require('path');
+const C = require('../js/core.js');
+const root = path.join(__dirname, '..');
+const update = process.argv.includes('--update');
+let fail = 0;
+const ok = (c, m) => { if (!c) { fail++; console.log('FAIL', m); } else console.log('ok  ', m); };
+
+function run(profileFile, inputFile) {
+  const profile = JSON.parse(fs.readFileSync(path.join(root, 'profiles', profileFile), 'utf8'));
+  const table = C.parseTable(C.decodeBuffer(fs.readFileSync(path.join(root, 'examples', inputFile))));
+  const R = C.analyze(table, profile);
+  if (!R.ok) { fail++; console.log('FAIL analyze', R.errors); return null; }
+  const files = C.buildOutputs(R, { inputName: inputFile });
+  const outDir = path.join(root, 'out', profile.id), expDir = path.join(root, 'examples', 'expected', profile.id);
+  fs.mkdirSync(outDir, { recursive: true });
+  for (const [n, c] of Object.entries(files)) fs.writeFileSync(path.join(outDir, n), c);
+  if (update) { fs.mkdirSync(expDir, { recursive: true }); for (const [n, c] of Object.entries(files)) fs.writeFileSync(path.join(expDir, n), c); }
+  for (const n of Object.keys(files)) {
+    const p = path.join(expDir, n);
+    ok(fs.existsSync(p) && fs.readFileSync(p, 'utf8') === files[n], `${profile.id}/${n} == expected`);
+  }
+  return R;
+}
+
+// KEIT: 파이썬 독립 계산값 (examples/input_keit_2024.csv, 268행)
+const K = run('keit_performance.json', 'input_keit_2024.csv');
+if (K) {
+  const t = K.totals;
+  ok(t.rows === 268 && t.analyzable === 107 && t.excluded === 161 && t.excludedWithOutput === 74, 'KEIT 행 수 268/107/161/74');
+  ok(t.input === 15938 && t.count === 6288 && t.paper === 3753 && t.patent === 1815, 'KEIT 합계 출연금·과제·논문·특허');
+  ok(JSON.stringify(K.typeCount) === JSON.stringify({ '논문형': 59, '균형형': 21, '특허형': 12, '성과 없음': 15 }), 'KEIT 유형 59/21/12/15');
+  ok(K.flagged.length === 6, 'KEIT 점검 후보 6건');
+  ok(Math.abs(K.conc.topShareInput - 0.686) < 0.001 && K.conc.k === 11, 'KEIT 상위10% 비중 68.6%');
+  ok(Math.abs(K.conc.giniInput - 0.790) < 0.001 && Math.abs(K.conc.giniPatent - 0.816) < 0.001, 'KEIT 지니 0.790/0.816');
+  ok(K.allOk && K.groups.length === 131, 'KEIT 검산 전부 일치, 세부사업 131개');
+  ok(K.years === null, 'KEIT 단일 연도라 추이 자동 비활성');
+}
+
+// 가상 기관: 다른 컬럼명·단위·2개 연도
+const O = run('sample_other_org.json', 'input_other_org.csv');
+if (O) {
+  ok(O.allOk, '가상 기관 검산 전부 일치');
+  ok(O.years && O.years.length === 2, '가상 기관 연도 2개라 추이 활성');
+  ok(O.totals.rows === 24, '가상 기관 24행');
+}
+
+// 컬럼 부족: 특허 컬럼이 없는 프로필이면 관련 지표만 꺼진다
+const base = JSON.parse(fs.readFileSync(path.join(root, 'profiles', 'sample_other_org.json'), 'utf8'));
+base.columns.patent = [];
+const tbl = C.parseTable(C.decodeBuffer(fs.readFileSync(path.join(root, 'examples', 'input_other_org.csv'))));
+const P = C.analyze(tbl, base);
+ok(P.ok && P.typeCount === null && P.analyzable[0].patentDensity === null && P.analyzable[0].comp !== null, '특허 컬럼 없음: 유형·특허밀도 꺼지고 논문 지표는 유지');
+
+// 없는 컬럼이면 오류를 돌려준다
+base.columns.input = ['없는컬럼'];
+const E = C.analyze(tbl, base);
+ok(!E.ok && E.missing.indexOf('없는컬럼') >= 0, '없는 컬럼은 오류로 안내');
+
+// 파서
+ok(JSON.stringify(C.parseCSV('a,b\n"1,182",x\n')) === JSON.stringify([['a', 'b'], ['1,182', 'x']]), 'CSV 따옴표 쉼표 처리');
+ok(C.toNum('1,182') === 1182 && C.toNum('') === null && isNaN(C.toNum('abc')), '숫자 변환');
+
+console.log(fail ? `\n${fail}개 실패` : '\n전부 통과');
+process.exit(fail ? 1 : 0);

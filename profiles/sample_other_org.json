@@ -1,0 +1,23 @@
+{
+  "id": "sample_other_org",
+  "name": "가상 기관 연구비·성과 자료 (범용성 시연)",
+  "description": "컬럼명·단위가 KEIT와 다른 가상 자료. 다른 기관 자료는 이처럼 프로필만 추가하면 된다.",
+  "columns": {
+    "year": "연도",
+    "group": "사업구분",
+    "label": ["사업구분", "과제군"],
+    "count": "과제 수",
+    "input": "연구비(백만원)",
+    "paper": ["논문(편)"],
+    "patent": ["특허 등록(건)"],
+    "aux": ["기술이전(건)"]
+  },
+  "units": { "input": "백만원", "densityPer": 100, "densityLabel": "연구비 1억원(100백만원)당" },
+  "thresholds": {
+    "typePaper": 0.65,
+    "typePatent": 0.35,
+    "flagInputTop": 0.25,
+    "flagDensityBottom": 0.40,
+    "concentrationTop": 0.10
+  }
+}

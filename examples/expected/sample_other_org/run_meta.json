@@ -1,0 +1,22 @@
+{
+  "tool": "rnd-profiler",
+  "profile": "sample_other_org",
+  "profile_name": "가상 기관 연구비·성과 자료 (범용성 시연)",
+  "input_file": "input_other_org.csv",
+  "rows": 24,
+  "analyzable_rows": 19,
+  "excluded_rows": 5,
+  "thresholds": {
+    "typePaper": 0.65,
+    "typePatent": 0.35,
+    "flagInputTop": 0.25,
+    "flagDensityBottom": 0.4,
+    "concentrationTop": 0.1
+  },
+  "cutoffs": {
+    "input_ge": 3235,
+    "density_le": 2.2082018927444795
+  },
+  "all_checks_ok": true,
+  "disabled_features": []
+}
