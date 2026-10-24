@@ -105,7 +105,7 @@
     }).sort(function (a, b) { return b.score - a.score; });
   }
 
-  var VERSION = '0.3.0';
+  var VERSION = '0.3.1';
   // smallInputBottom: 투입 하위 몇 %를 '분모 작음'으로 표시할지. expand*: 확대 검토 후보(투입 하위 N% 이면서 복합 밀도 상위 M%).
   var DEFAULT_TH = { typePaper: 0.65, typePatent: 0.35, flagInputTop: 0.25, flagDensityBottom: 0.40, concentrationTop: 0.10,
     smallInputBottom: 0.25, expandInputBottom: 0.50, expandDensityTop: 0.25, smallCountMax: 3 };
@@ -411,6 +411,9 @@
     scope += inc.length ? ' ' + inc.join(', ') + '를 포함합니다.' : ' 성과 컬럼은 없습니다.';
     if (t.excludedWithOutput) scope += ' 투입이 0이거나 비어 제외한 ' + t.excluded + '행 중 ' + t.excludedWithOutput + '행에는 성과가 있으며(논문 ' + num(t.excludedPaper) + '건, 특허 ' + num(t.excludedPatent) + '건) 밀도를 계산할 수 없습니다.';
     o.push({ key: 'scope', text: scope });
+    if (R.years) {
+      o.push({ key: 'years', text: '연도 값이 ' + R.years.length + '개(' + R.years.map(function (y) { return y.year; }).join('·') + ')인 자료입니다. 분위수·후보·안정성은 모든 연도의 행을 한 묶음으로 계산하므로, 같은 사업의 다른 해가 서로의 위치에 영향을 줍니다. 연도별로 보려면 연도마다 따로 분석하세요.' });
+    }
 
     if (R.conc) {
       var s = '투입 상위 ' + pct(R.thresholds.concentrationTop, 0) + '(' + R.conc.k + '행)가 투입의 ' + pct(R.conc.topShareInput) + '를 차지합니다.';
@@ -429,17 +432,22 @@
         var fi = sum(R.flagged.map(function (r) { return r.input; })), fo = sum(R.flagged.map(function (r) { return r.paper + r.patent; }));
         o.push({ key: 'flags', text: '점검 후보 ' + R.flagged.length + '행은 분석 대상 투입의 ' + pct(fi / t.analyzableInput) + '를 차지하고, 이 행들의 복합 밀도는 합쳐서 ' + num(fo / fi * R.units.densityPer) + '(전체 ' + num(t.comp) + ')입니다.' });
       } else o.push({ key: 'flags', text: '점검 후보 조건(투입 상위 ' + pct(R.thresholds.flagInputTop, 0) + ', 복합 밀도 하위 ' + pct(R.thresholds.flagDensityBottom, 0) + ')에 맞는 행이 없습니다.' });
+      var st = R.stability;
+      o.push({ key: 'stabilityFlag', text: '투입·밀도 기준을 ±5%p, ±10%p씩 옮긴 ' + st.cells + '가지에서 점검 후보 ' + R.flagged.length + '행 중 매번 잡히는 행은 ' + st.flag.stable + '행이고, 같은 ' + st.cells + '가지에서 점검 후보 수는 ' + st.flag.min + '~' + st.flag.max + '행입니다.' });
 
       var ex = R.expandList, exSmall = ex.filter(function (r) { return r.small; }).length;
       o.push({ key: 'expand', text: ex.length ? '확대 검토 후보 ' + ex.length + '행 중 분모 작음 표시가 없는 행은 ' + (ex.length - exSmall) + '행, 분모 작음 행은 ' + exSmall + '행입니다. 분모 작음 행은 밀도가 우연히 높게 나왔을 수 있습니다.'
         : '확대 검토 후보 조건(투입 하위 ' + pct(R.thresholds.expandInputBottom, 0) + ', 복합 밀도 상위 ' + pct(R.thresholds.expandDensityTop, 0) + ')에 맞는 행이 없습니다.' });
 
+      o.push({ key: 'stabilityExpand', text: '같은 ' + st.cells + '가지에서 확대 검토 후보 ' + R.expandList.length + '행 중 매번 잡히는 행은 ' + st.expand.stable + '행이고, 후보 수는 ' + st.expand.min + '~' + st.expand.max + '행입니다.' });
+
       var si = R.smallInfo;
       o.push({ key: 'small', text: '복합 밀도 상위 ' + pct(TOP_DENSITY, 0) + '(' + si.k + '행) 중 ' + si.smallInTop + '행은 투입 하위 ' + pct(R.thresholds.smallInputBottom, 0) + '(≤ ' + num(R.cut.smallLo) + u + ')인 분모 작음 행입니다.' });
       if (R.fewInfo) o.push({ key: 'sample', text: '분석 대상 ' + t.analyzable + '행 중 과제 수 ' + R.fewInfo.max + '개 이하인 행은 ' + R.fewInfo.rows + '행(' + pct(R.fewInfo.rows / t.analyzable) + ')이며, 점검 후보 중 ' + R.fewInfo.inFlag + '행, 확대 검토 후보 중 ' + R.fewInfo.inExpand + '행입니다.' });
-      var st = R.stability;
-      o.push({ key: 'stability', text: '점검 후보 ' + R.flagged.length + '행 중 투입·밀도 기준을 ±5%p, ±10%p씩 옮긴 ' + st.cells + '가지에서 매번 잡히는 행은 ' + st.flag.stable + '행이며, 같은 ' + st.cells + '가지에서 점검 후보 수는 ' + st.flag.min + '~' + st.flag.max + '행입니다. 확대 검토 후보 ' + R.expandList.length + '행 중 매번 잡히는 행은 ' + st.expand.stable + '행이고 후보 수는 ' + st.expand.min + '~' + st.expand.max + '행입니다.' });
     }
+    var GROUP = { scope: '범위', years: '범위', concentration: '투입과 성과', type: '투입과 성과', flags: '점검 후보', stabilityFlag: '점검 후보',
+      expand: '확대 검토 후보', stabilityExpand: '확대 검토 후보', small: '표본이 작은 행', sample: '표본이 작은 행' };
+    o.forEach(function (x) { x.group = GROUP[x.key]; });
     return o;
   }
 
@@ -570,7 +578,11 @@
     L.push('');
     L.push('규칙으로 채운 문장이며 숫자 비교만 적었습니다. 원인이나 우열은 판단하지 않았습니다.');
     L.push('');
-    R.observations.forEach(function (ob) { L.push('- ' + ob.text); });
+    var lastGroup = null;
+    R.observations.forEach(function (ob) {
+      if (ob.group !== lastGroup) { if (lastGroup !== null) L.push(''); L.push('**' + ob.group + '**'); L.push(''); lastGroup = ob.group; }
+      L.push('- ' + ob.text);
+    });
     L.push('');
     L.push('## 1. 검산');
     L.push('');

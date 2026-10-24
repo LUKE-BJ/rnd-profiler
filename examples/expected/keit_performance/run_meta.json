@@ -1,6 +1,6 @@
 {
   "tool": "rnd-profiler",
-  "tool_version": "0.3.0",
+  "tool_version": "0.3.1",
   "profile": "keit_performance",
   "profile_name": "KEIT 산업기술 연구개발 성과조사정보",
   "input_file": "input_keit_2024.csv",

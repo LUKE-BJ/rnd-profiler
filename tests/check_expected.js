@@ -74,7 +74,7 @@ ok(H.expandList.map(r => r.label).join() === 'C,A' && H.expandList[1].small === 
 ok(H.flagged.length === 0 && H.analyzable.every(r => !(r.flag && r.expand)), '손계산: 점검 후보 없음, 점검과 확대는 겹치지 않음');
 ok(Math.abs(H.coverage.rows - 8 / 9) < 1e-12 && Math.abs(H.coverage.paper - 29 / 31) < 1e-12 && Math.abs(H.coverage.patent - 0) < 1e-12 && H.totals.excludedWithOutput === 1, '손계산: 분석 포함 비율 행 8/9, 논문 29/31, 제외 행 성과 1행');
 ok(H.smallInfo.k === 1 && H.smallInfo.smallInTop === 1 && H.smallInfo.smallRows === 2, '손계산: 밀도 상위 1행(A)은 분모 작음');
-ok(H.observations.map(o => o.key).join() === 'scope,concentration,type,flags,expand,small,stability', '손계산: 관찰문 항목 순서(과제 수 컬럼 없으면 sample 없음)');
+ok(H.observations.map(o => o.key).join() === 'scope,concentration,type,flags,stabilityFlag,expand,stabilityExpand,small', '손계산: 관찰문 항목 순서(과제 수 컬럼 없으면 sample, 연도 없으면 years 없음)');
 ok(H.fewInfo === null && H.analyzable.every(r => r.fewTasks === false), '손계산: 과제 수 컬럼이 없으면 과제 수 적음 표시 꺼짐');
 
 // v0.3: 과제 수 적음 — 과제수 1,5,3,2,9,4,3,20 (기준 3 이하 -> A,C,D,G)
@@ -86,7 +86,7 @@ ok(H2.analyzable.filter(r => r.fewTasks).map(r => r.label).join() === 'A,C,D,G' 
 ok(H2.fewInfo.inFlag === 0 && H2.fewInfo.inExpand === 2, '손계산: 확대 후보 C,A는 둘 다 과제 수 적음');
 const H3 = C.analyze(hand2, hp2, { thresholds: { smallCountMax: 2 } });
 ok(H3.analyzable.filter(r => r.fewTasks).map(r => r.label).join() === 'A,D', '손계산: 기준을 2로 바꾸면 A,D');
-ok(H2.observations.map(o => o.key).join() === 'scope,concentration,type,flags,expand,small,sample,stability', '손계산: 과제 수 컬럼이 있으면 sample 관찰문');
+ok(H2.observations.map(o => o.key).join() === 'scope,concentration,type,flags,stabilityFlag,expand,stabilityExpand,small,sample', '손계산: 과제 수 컬럼이 있으면 sample 관찰문');
 
 // v0.3: 후보 안정성 — 기준을 ±5%p, ±10%p씩 옮긴 5×5=25가지에서 잡힌 횟수를, 코어와 따로 짠 단순 반복문으로 다시 센다
 function recountHits(R) {
@@ -141,6 +141,16 @@ if (K) {
   ok(txt.includes('68.6%') && txt.includes('56.6%') && txt.includes('57.4%'), 'KEIT 관찰문에 상위 10% 투입·논문·특허 비중 포함');
   ok(!/합격|불합격|우수|부진|문제|실패/.test(txt), '관찰문에 평가·판정 어휘 없음');
 }
+
+// v0.3.1: 한눈에 보기 묶음, 여러 해 자료 안내
+const grp = R => R.observations.map(o => o.group).filter((g, i, a) => a.indexOf(g) === i).join();
+ok(H2.observations.every(o => o.group) && grp(H2) === '범위,투입과 성과,점검 후보,확대 검토 후보,표본이 작은 행', '관찰문마다 묶음이 있고 순서가 범위·투입과 성과·점검·확대·표본');
+if (K) ok(!K.observations.some(o => o.key === 'years'), 'KEIT(연도 1개): 여러 해 안내 없음');
+if (O) {
+  const y = O.observations.find(o => o.key === 'years');
+  ok(!!y && y.group === '범위' && y.text.includes('연도 값이 2개') && O.observations[1].key === 'years', '가상 기관(연도 2개): 여러 해 안내가 범위 묶음 맨 앞쪽에 있음');
+}
+ok(C.VERSION === '0.3.1', '버전 0.3.1');
 
 // 파서
 ok(JSON.stringify(C.parseCSV('a,b\n"1,182",x\n')) === JSON.stringify([['a', 'b'], ['1,182', 'x']]), 'CSV 따옴표 쉼표 처리');

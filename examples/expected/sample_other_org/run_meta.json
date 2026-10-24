@@ -1,6 +1,6 @@
 {
   "tool": "rnd-profiler",
-  "tool_version": "0.3.0",
+  "tool_version": "0.3.1",
   "profile": "sample_other_org",
   "profile_name": "가상 기관 연구비·성과 자료 (범용성 시연)",
   "input_file": "input_other_org.csv",
