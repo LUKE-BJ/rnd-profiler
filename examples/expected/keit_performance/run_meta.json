@@ -1,6 +1,6 @@
 {
   "tool": "rnd-profiler",
-  "tool_version": "0.2.0",
+  "tool_version": "0.3.0",
   "profile": "keit_performance",
   "profile_name": "KEIT 산업기술 연구개발 성과조사정보",
   "input_file": "input_keit_2024.csv",
@@ -15,7 +15,8 @@
     "concentrationTop": 0.1,
     "smallInputBottom": 0.25,
     "expandInputBottom": 0.5,
-    "expandDensityTop": 0.25
+    "expandDensityTop": 0.25,
+    "smallCountMax": 3
   },
   "cutoffs": {
     "input_ge": 80,
@@ -23,6 +24,32 @@
     "small_input_le": 13,
     "expand_input_le": 28,
     "expand_density_ge": 5.939597315436242
+  },
+  "stability": {
+    "cells": 25,
+    "offsets_pct_point": [
+      -10,
+      -5,
+      0,
+      5,
+      10
+    ],
+    "flag": {
+      "min": 1,
+      "max": 15,
+      "stable": 1
+    },
+    "expand": {
+      "min": 11,
+      "max": 25,
+      "stable": 11
+    }
+  },
+  "few_tasks": {
+    "max": 3,
+    "rows": 31,
+    "inFlag": 0,
+    "inExpand": 6
   },
   "all_checks_ok": true,
   "disabled_features": [

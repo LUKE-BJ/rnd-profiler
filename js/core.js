@@ -105,10 +105,13 @@
     }).sort(function (a, b) { return b.score - a.score; });
   }
 
-  var VERSION = '0.2.0';
+  var VERSION = '0.3.0';
   // smallInputBottom: 투입 하위 몇 %를 '분모 작음'으로 표시할지. expand*: 확대 검토 후보(투입 하위 N% 이면서 복합 밀도 상위 M%).
   var DEFAULT_TH = { typePaper: 0.65, typePatent: 0.35, flagInputTop: 0.25, flagDensityBottom: 0.40, concentrationTop: 0.10,
-    smallInputBottom: 0.25, expandInputBottom: 0.50, expandDensityTop: 0.25 };
+    smallInputBottom: 0.25, expandInputBottom: 0.50, expandDensityTop: 0.25, smallCountMax: 3 };
+  // 후보 안정성: 점검·확대 후보의 두 기준을 각각 이 만큼(%p) 옮긴 5×5=25가지에서 몇 번 잡히는지 센다.
+  var STAB_OFFSETS = [-0.10, -0.05, 0, 0.05, 0.10];
+  function clampP(p) { return Math.min(0.99, Math.max(0.01, p)); }
   var TOP_DENSITY = 0.10; // '복합 밀도 상위 10% 중 분모 작음 행' 관찰문에 쓰는 비율
 
   /* ---------- 본 계산 ---------- */
@@ -211,6 +214,36 @@
       var topDensity = analyzable.slice().sort(function (a, b) { return b.comp - a.comp || b.input - a.input; }).slice(0, kTop);
       smallInfo = { k: kTop, smallInTop: topDensity.filter(function (r) { return r.small; }).length,
         smallRows: analyzable.filter(function (r) { return r.small; }).length };
+    }
+
+    // 과제 수 적음: 과제 수 컬럼이 있을 때만. 과제 수가 적으면 투입이 커도 한두 과제의 성과에 밀도가 좌우된다.
+    analyzable.forEach(function (r) { r.fewTasks = !!countCol && r.count <= th.smallCountMax; r.flagHits = 0; r.expandHits = 0; });
+    var fewInfo = countCol ? { max: th.smallCountMax, rows: analyzable.filter(function (r) { return r.fewTasks; }).length,
+      inFlag: flagged.filter(function (r) { return r.fewTasks; }).length, inExpand: expandList.filter(function (r) { return r.fewTasks; }).length } : null;
+
+    // 후보 안정성: 기준을 옮긴 25가지(투입 기준 5 × 밀도 기준 5)에서 행마다 후보로 잡힌 횟수
+    var stability = null;
+    if (cut.inputHi !== null) {
+      var inHi = STAB_OFFSETS.map(function (o) { return quantile(inputs, 1 - clampP(th.flagInputTop + o)); });
+      var dLo = STAB_OFFSETS.map(function (o) { return quantile(comps, clampP(th.flagDensityBottom + o)); });
+      var inLo = STAB_OFFSETS.map(function (o) { return quantile(inputs, clampP(th.expandInputBottom + o)); });
+      var dHi = STAB_OFFSETS.map(function (o) { return quantile(comps, 1 - clampP(th.expandDensityTop + o)); });
+      var fCounts = [], eCounts = [];
+      for (var i = 0; i < STAB_OFFSETS.length; i++) {
+        for (var j = 0; j < STAB_OFFSETS.length; j++) {
+          var nf = 0, ne = 0;
+          for (var q = 0; q < analyzable.length; q++) {
+            var rr = analyzable[q];
+            if (rr.input >= inHi[i] && rr.comp <= dLo[j]) { rr.flagHits++; nf++; }
+            if (rr.input <= inLo[i] && rr.comp >= dHi[j]) { rr.expandHits++; ne++; }
+          }
+          fCounts.push(nf); eCounts.push(ne);
+        }
+      }
+      var cells = STAB_OFFSETS.length * STAB_OFFSETS.length;
+      stability = { cells: cells, offsets: STAB_OFFSETS,
+        flag: { min: Math.min.apply(null, fCounts), max: Math.max.apply(null, fCounts), stable: flagged.filter(function (r) { return r.flagHits === cells; }).length },
+        expand: { min: Math.min.apply(null, eCounts), max: Math.max.apply(null, eCounts), stable: expandList.filter(function (r) { return r.expandHits === cells; }).length } };
     }
 
     // 유형 분포
@@ -344,7 +377,7 @@
       flags: { hasPaper: hasPaper, hasPatent: hasPatent, hasBoth: hasBoth, hasCount: !!countCol, hasGroup: !!groupCol },
       cols: { input: inputCol, count: countCol, paper: paperCols, patent: patentCols, aux: auxCols, group: groupCol, year: yearCol },
       rows: rows, analyzable: analyzable, excluded: excluded, excludedWithOutput: excludedWithOutput,
-      cut: cut, flagged: flagged, expandList: expandList, smallInfo: smallInfo, coverage: coverage,
+      cut: cut, flagged: flagged, expandList: expandList, smallInfo: smallInfo, coverage: coverage, stability: stability, fewInfo: fewInfo,
       typeCount: typeCount, conc: conc, groups: groups, years: years,
       checks: checks, dups: dups, badCells: badCells, totals: tot,
       allOk: checks.every(function (c) { return c.ok; }) && badCells === 0,
@@ -352,7 +385,7 @@
         hasPaper ? [] : ['논문 지표(논문 컬럼 없음)'],
         hasPatent ? [] : ['특허 지표(특허 컬럼 없음)'],
         hasBoth ? [] : ['성과 유형 분류(논문·특허 컬럼이 모두 필요)'],
-        countCol ? [] : ['과제당 평균 투입(과제 수 컬럼 없음)'],
+        countCol ? [] : ['과제당 평균 투입(과제 수 컬럼 없음)', '과제 수 적음 표시(과제 수 컬럼 없음)'],
         groupCol ? [] : ['그룹별 집계표(그룹 컬럼 없음)'],
         years ? [] : ['연도 추이(연도 값이 2개 미만)'])
     };
@@ -403,6 +436,9 @@
 
       var si = R.smallInfo;
       o.push({ key: 'small', text: '복합 밀도 상위 ' + pct(TOP_DENSITY, 0) + '(' + si.k + '행) 중 ' + si.smallInTop + '행은 투입 하위 ' + pct(R.thresholds.smallInputBottom, 0) + '(≤ ' + num(R.cut.smallLo) + u + ')인 분모 작음 행입니다.' });
+      if (R.fewInfo) o.push({ key: 'sample', text: '분석 대상 ' + t.analyzable + '행 중 과제 수 ' + R.fewInfo.max + '개 이하인 행은 ' + R.fewInfo.rows + '행(' + pct(R.fewInfo.rows / t.analyzable) + ')이며, 점검 후보 중 ' + R.fewInfo.inFlag + '행, 확대 검토 후보 중 ' + R.fewInfo.inExpand + '행입니다.' });
+      var st = R.stability;
+      o.push({ key: 'stability', text: '점검 후보 ' + R.flagged.length + '행 중 투입·밀도 기준을 ±5%p, ±10%p씩 옮긴 ' + st.cells + '가지에서 매번 잡히는 행은 ' + st.flag.stable + '행이며, 같은 ' + st.cells + '가지에서 점검 후보 수는 ' + st.flag.min + '~' + st.flag.max + '행입니다. 확대 검토 후보 ' + R.expandList.length + '행 중 매번 잡히는 행은 ' + st.expand.stable + '행이고 후보 수는 ' + st.expand.min + '~' + st.expand.max + '행입니다.' });
     }
     return o;
   }
@@ -435,7 +471,7 @@
     if (f.hasPatent) mh.push('특허 밀도');
     if (f.hasPaper || f.hasPatent) mh.push('복합 밀도');
     if (f.hasBoth) { mh.push('논문 비중'); mh.push('유형'); }
-    mh.push('점검 후보'); mh.push('분모 작음'); mh.push('확대 검토 후보');
+    mh.push('점검 후보'); mh.push('분모 작음'); mh.push('확대 검토 후보'); mh.push('과제 수 적음'); mh.push('점검 후보 유지 횟수'); mh.push('확대 후보 유지 횟수');
     files['metrics.csv'] = toCSV(mh, R.analyzable.map(function (r) {
       var x = [r.year, r.group, r.label, r.count, r.input];
       if (f.hasPaper) x.push(r.paper);
@@ -446,6 +482,7 @@
       if (f.hasPaper || f.hasPatent) x.push(r4(r.comp));
       if (f.hasBoth) { x.push(r4(r.paperShare)); x.push(r.type); }
       x.push(r.flag ? 'Y' : ''); x.push(r.small ? 'Y' : ''); x.push(r.expand ? 'Y' : '');
+      x.push(r.fewTasks ? 'Y' : ''); x.push(R.stability ? r.flagHits : ''); x.push(R.stability ? r.expandHits : '');
       return x;
     }));
 
@@ -454,20 +491,21 @@
     if (f.hasPaper) fh.push('논문');
     if (f.hasPatent) fh.push('특허');
     fh.push('복합 밀도');
-    files['flags.csv'] = toCSV(fh, R.flagged.map(function (r) {
+    var cellsN = R.stability ? R.stability.cells : 25;
+    files['flags.csv'] = toCSV(fh.concat(['과제 수 적음', '기준 유지 횟수(/' + cellsN + ')']), R.flagged.map(function (r) {
       var x = [r.year, r.group, r.label, r.count, r.input];
       if (f.hasPaper) x.push(r.paper);
       if (f.hasPatent) x.push(r.patent);
-      x.push(r4(r.comp));
+      x.push(r4(r.comp)); x.push(r.fewTasks ? 'Y' : ''); x.push(r.flagHits);
       return x;
     }));
 
     // expand.csv: 확대 검토 후보(분모 작음이 아닌 행 먼저)
-    files['expand.csv'] = toCSV(fh.concat(['분모 작음']), R.expandList.map(function (r) {
+    files['expand.csv'] = toCSV(fh.concat(['분모 작음', '과제 수 적음', '기준 유지 횟수(/' + cellsN + ')']), R.expandList.map(function (r) {
       var x = [r.year, r.group, r.label, r.count, r.input];
       if (f.hasPaper) x.push(r.paper);
       if (f.hasPatent) x.push(r.patent);
-      x.push(r4(r.comp)); x.push(r.small ? 'Y' : '');
+      x.push(r4(r.comp)); x.push(r.small ? 'Y' : ''); x.push(r.fewTasks ? 'Y' : ''); x.push(r.expandHits);
       return x;
     }));
 
@@ -510,7 +548,8 @@
       tool: 'rnd-profiler', tool_version: VERSION, profile: R.profile.id, profile_name: R.profile.name,
       input_file: meta.inputName || null, rows: R.totals.rows, analyzable_rows: R.totals.analyzable, excluded_rows: R.totals.excluded,
       thresholds: R.thresholds, cutoffs: { input_ge: R.cut.inputHi, density_le: R.cut.densityLo, small_input_le: R.cut.smallLo, expand_input_le: R.cut.expandInputLo, expand_density_ge: R.cut.expandDensityHi },
-      all_checks_ok: R.allOk, disabled_features: R.disabled
+      stability: R.stability ? { cells: R.stability.cells, offsets_pct_point: R.stability.offsets.map(function (o) { return Math.round(o * 100); }), flag: R.stability.flag, expand: R.stability.expand } : null,
+      few_tasks: R.fewInfo, all_checks_ok: R.allOk, disabled_features: R.disabled
     };
     if (meta.generatedAt) rm.generated_at = meta.generatedAt;
     files['run_meta.json'] = JSON.stringify(rm, null, 2) + '\n';
@@ -578,12 +617,14 @@
       L.push('기준: 투입 상위 ' + pct(R.thresholds.flagInputTop, 0) + '(≥ ' + num(R.cut.inputHi) + u + ') 이면서 복합 밀도 하위 ' + pct(R.thresholds.flagDensityBottom, 0) + '(≤ ' + num(R.cut.densityLo) + '). 부실 판정이 아니라 추가 확인 대상입니다.');
       L.push('');
       if (R.flagged.length) {
-        L.push('| 그룹 | 항목 | 투입(' + u + ') | 논문 | 특허 | 복합 밀도 |');
-        L.push('|---|---|---:|---:|---:|---:|');
+        L.push('| 그룹 | 항목 | 투입(' + u + ') | 논문 | 특허 | 복합 밀도 | 과제 수 적음 | 유지 횟수 |');
+        L.push('|---|---|---:|---:|---:|---:|---|---:|');
         R.flagged.forEach(function (r) {
-          L.push('| ' + mdCell(r.group) + ' | ' + mdCell(r.label) + ' | ' + num(r.input) + ' | ' + num(r.paper) + ' | ' + num(r.patent) + ' | ' + num(r.comp) + ' |');
+          L.push('| ' + mdCell(r.group) + ' | ' + mdCell(r.label) + ' | ' + num(r.input) + ' | ' + num(r.paper) + ' | ' + num(r.patent) + ' | ' + num(r.comp) + ' | ' + (r.fewTasks ? 'Y' : '') + ' | ' + r.flagHits + '/' + R.stability.cells + ' |');
         });
       } else L.push('해당 행 없음.');
+      L.push('');
+      L.push('유지 횟수: 투입 상위 ' + pct(R.thresholds.flagInputTop, 0) + '·밀도 하위 ' + pct(R.thresholds.flagDensityBottom, 0) + ' 기준을 각각 ±5%p, ±10%p씩 옮긴 ' + R.stability.cells + '가지 중 후보로 잡힌 횟수입니다. 같은 ' + R.stability.cells + '가지에서 점검 후보 수는 ' + R.stability.flag.min + '~' + R.stability.flag.max + '행입니다.');
       L.push('');
     }
     if (R.cut.expandInputLo !== null) {
@@ -592,12 +633,14 @@
       L.push('기준: 투입 하위 ' + pct(R.thresholds.expandInputBottom, 0) + '(≤ ' + num(R.cut.expandInputLo) + u + ') 이면서 복합 밀도 상위 ' + pct(R.thresholds.expandDensityTop, 0) + '(≥ ' + num(R.cut.expandDensityHi) + '). 확대를 권하는 것이 아니라 추가 확인 대상입니다. 분모 작음은 투입 하위 ' + pct(R.thresholds.smallInputBottom, 0) + '(≤ ' + num(R.cut.smallLo) + u + ')이며, 이 행의 밀도는 우연히 높게 나왔을 수 있어 뒤에 두었습니다.');
       L.push('');
       if (R.expandList.length) {
-        L.push('| 그룹 | 항목 | 투입(' + u + ') | 논문 | 특허 | 복합 밀도 | 분모 작음 |');
-        L.push('|---|---|---:|---:|---:|---:|---|');
+        L.push('| 그룹 | 항목 | 투입(' + u + ') | 논문 | 특허 | 복합 밀도 | 분모 작음 | 과제 수 적음 | 유지 횟수 |');
+        L.push('|---|---|---:|---:|---:|---:|---|---|---:|');
         R.expandList.forEach(function (r) {
-          L.push('| ' + mdCell(r.group) + ' | ' + mdCell(r.label) + ' | ' + num(r.input) + ' | ' + num(r.paper) + ' | ' + num(r.patent) + ' | ' + num(r.comp) + ' | ' + (r.small ? 'Y' : '') + ' |');
+          L.push('| ' + mdCell(r.group) + ' | ' + mdCell(r.label) + ' | ' + num(r.input) + ' | ' + num(r.paper) + ' | ' + num(r.patent) + ' | ' + num(r.comp) + ' | ' + (r.small ? 'Y' : '') + ' | ' + (r.fewTasks ? 'Y' : '') + ' | ' + r.expandHits + '/' + R.stability.cells + ' |');
         });
       } else L.push('해당 행 없음.');
+      L.push('');
+      L.push('유지 횟수: 투입 하위 ' + pct(R.thresholds.expandInputBottom, 0) + '·밀도 상위 ' + pct(R.thresholds.expandDensityTop, 0) + ' 기준을 각각 ±5%p, ±10%p씩 옮긴 ' + R.stability.cells + '가지 중 후보로 잡힌 횟수입니다. 같은 ' + R.stability.cells + '가지에서 확대 검토 후보 수는 ' + R.stability.expand.min + '~' + R.stability.expand.max + '행입니다.');
       L.push('');
     }
     if (R.years) {

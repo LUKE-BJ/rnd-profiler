@@ -28,6 +28,8 @@ function run(profileFile, inputFile) {
 
 // KEIT: 파이썬 독립 계산값 (examples/input_keit_2024.csv, 268행)
 const K = run('keit_performance.json', 'input_keit_2024.csv');
+const keitProfile = JSON.parse(fs.readFileSync(path.join(root, 'profiles', 'keit_performance.json'), 'utf8'));
+const table_keit = C.parseTable(C.decodeBuffer(fs.readFileSync(path.join(root, 'examples', 'input_keit_2024.csv'))));
 if (K) {
   const t = K.totals;
   ok(t.rows === 268 && t.analyzable === 107 && t.excluded === 161 && t.excludedWithOutput === 74, 'KEIT 행 수 268/107/161/74');
@@ -72,7 +74,57 @@ ok(H.expandList.map(r => r.label).join() === 'C,A' && H.expandList[1].small === 
 ok(H.flagged.length === 0 && H.analyzable.every(r => !(r.flag && r.expand)), '손계산: 점검 후보 없음, 점검과 확대는 겹치지 않음');
 ok(Math.abs(H.coverage.rows - 8 / 9) < 1e-12 && Math.abs(H.coverage.paper - 29 / 31) < 1e-12 && Math.abs(H.coverage.patent - 0) < 1e-12 && H.totals.excludedWithOutput === 1, '손계산: 분석 포함 비율 행 8/9, 논문 29/31, 제외 행 성과 1행');
 ok(H.smallInfo.k === 1 && H.smallInfo.smallInTop === 1 && H.smallInfo.smallRows === 2, '손계산: 밀도 상위 1행(A)은 분모 작음');
-ok(H.observations.map(o => o.key).join() === 'scope,concentration,type,flags,expand,small', '손계산: 관찰문 항목 순서');
+ok(H.observations.map(o => o.key).join() === 'scope,concentration,type,flags,expand,small,stability', '손계산: 관찰문 항목 순서(과제 수 컬럼 없으면 sample 없음)');
+ok(H.fewInfo === null && H.analyzable.every(r => r.fewTasks === false), '손계산: 과제 수 컬럼이 없으면 과제 수 적음 표시 꺼짐');
+
+// v0.3: 과제 수 적음 — 과제수 1,5,3,2,9,4,3,20 (기준 3 이하 -> A,C,D,G)
+const hand2 = [['사업', '투입', '과제수', '논문', '특허'], ['A', '10', '1', '5', '0'], ['B', '20', '5', '1', '0'], ['C', '30', '3', '3', '0'], ['D', '40', '2', '2', '0'],
+  ['E', '50', '9', '4', '0'], ['F', '60', '4', '0', '0'], ['G', '70', '3', '6', '0'], ['H', '80', '20', '8', '0']];
+const hp2 = { id: 'hand2', name: '손계산2', columns: { input: '투입', count: '과제수', paper: ['논문'], patent: ['특허'], label: ['사업'] }, units: hp.units };
+const H2 = C.analyze(hand2, hp2);
+ok(H2.analyzable.filter(r => r.fewTasks).map(r => r.label).join() === 'A,C,D,G' && H2.fewInfo.rows === 4 && H2.fewInfo.max === 3, '손계산: 과제 수 3 이하 A,C,D,G');
+ok(H2.fewInfo.inFlag === 0 && H2.fewInfo.inExpand === 2, '손계산: 확대 후보 C,A는 둘 다 과제 수 적음');
+const H3 = C.analyze(hand2, hp2, { thresholds: { smallCountMax: 2 } });
+ok(H3.analyzable.filter(r => r.fewTasks).map(r => r.label).join() === 'A,D', '손계산: 기준을 2로 바꾸면 A,D');
+ok(H2.observations.map(o => o.key).join() === 'scope,concentration,type,flags,expand,small,sample,stability', '손계산: 과제 수 컬럼이 있으면 sample 관찰문');
+
+// v0.3: 후보 안정성 — 기준을 ±5%p, ±10%p씩 옮긴 5×5=25가지에서 잡힌 횟수를, 코어와 따로 짠 단순 반복문으로 다시 센다
+function recountHits(R) {
+  const th = R.thresholds, rows = R.analyzable;
+  const sorted = a => a.slice().sort((x, y) => x - y);
+  const qq = (arr, p) => { const s = sorted(arr), n = s.length, pos = p * (n + 1); if (pos <= 1) return s[0]; if (pos >= n) return s[n - 1]; const lo = Math.floor(pos); return s[lo - 1] + (pos - lo) * (s[lo] - s[lo - 1]); };
+  const cl = p => Math.min(0.99, Math.max(0.01, p));
+  const ins = rows.map(r => r.input), cps = rows.map(r => r.comp), offs = [-0.10, -0.05, 0, 0.05, 0.10];
+  const fh = rows.map(() => 0), eh = rows.map(() => 0), fc = [], ec = [];
+  for (const a of offs) for (const b of offs) {
+    const fi = qq(ins, 1 - cl(th.flagInputTop + a)), fd = qq(cps, cl(th.flagDensityBottom + b));
+    const ei = qq(ins, cl(th.expandInputBottom + a)), ed = qq(cps, 1 - cl(th.expandDensityTop + b));
+    let nf = 0, ne = 0;
+    rows.forEach((r, i) => { if (r.input >= fi && r.comp <= fd) { fh[i]++; nf++; } if (r.input <= ei && r.comp >= ed) { eh[i]++; ne++; } });
+    fc.push(nf); ec.push(ne);
+  }
+  return { fh, eh, fmin: Math.min(...fc), fmax: Math.max(...fc), emin: Math.min(...ec), emax: Math.max(...ec) };
+}
+for (const [name, R] of [['손계산', H2], ['KEIT', K], ['가상 기관', O]]) {
+  if (!R) continue;
+  const rc = recountHits(R);
+  ok(R.analyzable.every((r, i) => r.flagHits === rc.fh[i] && r.expandHits === rc.eh[i]), name + ': 행별 유지 횟수가 따로 센 값과 같음');
+  ok(R.stability.cells === 25 && R.stability.flag.min === rc.fmin && R.stability.flag.max === rc.fmax && R.stability.expand.min === rc.emin && R.stability.expand.max === rc.emax, name + ': 후보 수 범위가 따로 센 값과 같음');
+  ok(R.flagged.every(r => r.flagHits >= 1 && r.flagHits <= 25) && R.expandList.every(r => r.expandHits >= 1 && r.expandHits <= 25), name + ': 현재 후보는 최소 1회(기준 가운데 칸) 잡힘');
+}
+if (K) {
+  // 기준을 하나씩 바꿔 analyze를 25번 돌려 센 값(안정성 계산 코드를 쓰지 않는 경로)과도 대조
+  const byLabel = {};
+  for (const a of [0.15, 0.20, 0.25, 0.30, 0.35]) for (const b of [0.30, 0.35, 0.40, 0.45, 0.50]) {
+    const X = C.analyze(table_keit, keitProfile, { thresholds: { flagInputTop: a, flagDensityBottom: b } });
+    X.flagged.forEach(r => { byLabel[r.label] = (byLabel[r.label] || 0) + 1; });
+  }
+  ok(K.flagged.every(r => r.flagHits === byLabel[r.label]), 'KEIT: 점검 후보 유지 횟수가 기준을 바꿔 25번 돌린 값과 같음');
+  ok(K.flagged.length === 6 && K.stability.flag.stable === 1 && K.flagged.filter(r => r.flagHits === 25).map(r => r.label).join() === '스마트카' && K.stability.flag.min === 1 && K.stability.flag.max === 15, 'KEIT: 점검 후보 6행 중 25번 모두 잡히는 행은 스마트카 1행, 후보 수 1~15');
+  const few = K.analyzable.filter(r => r.count <= 3).length;
+  ok(K.fewInfo.rows === few && few === 31 && K.analyzable.every(r => r.fewTasks === (r.count <= 3)), 'KEIT: 과제 수 3 이하 31행이 따로 센 값과 같음');
+  ok(K.flagged.length === 6 && K.expandList.length === 16 && K.smallInfo.smallRows === 27, 'KEIT: 기존 점검 6·확대 16·분모 작음 27행은 그대로');
+}
 
 // KEIT: 분모 작음·확대 후보를 테스트 안에서 따로 다시 계산해 대조(코어 코드를 쓰지 않는 단순 반복문)
 if (K) {

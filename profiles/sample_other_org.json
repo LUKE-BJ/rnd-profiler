@@ -21,6 +21,7 @@
     "concentrationTop": 0.10,
     "smallInputBottom": 0.25,
     "expandInputBottom": 0.50,
-    "expandDensityTop": 0.25
+    "expandDensityTop": 0.25,
+    "smallCountMax": 3
   }
 }
