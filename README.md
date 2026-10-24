@@ -4,6 +4,10 @@
 
 한양대 과학기술정책학과 「과학기술정책 연구도구」 과제 ⑤ 연구·R&D 데이터 대시보드 유형입니다. 흐름은 `내 자료(붙여넣기·CSV) → 기준 파일(프로필) → 표·그래프 → 내보내기(CSV·마크다운)`입니다.
 
+- 저장소: <https://github.com/LUKE-BJ/rnd-profiler>
+- 접속 주소(GitHub Pages): <https://luke-bj.github.io/rnd-profiler/>
+- 변경 기록: [CHANGELOG.md](CHANGELOG.md)
+
 ## 쓰는 법
 
 1. `index.html`을 브라우저로 엽니다(더블클릭으로 충분합니다). GitHub Pages로 올려도 같습니다. 파일 하나만 필요하면 `dist/rnd-profiler.html`을 쓰세요.
