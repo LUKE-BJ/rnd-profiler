@@ -40,11 +40,12 @@
 
   var TH_FIELDS = [['typePaper', '논문형: 논문 비중 이상 (%)'], ['typePatent', '특허형: 논문 비중 이하 (%)'], ['flagInputTop', '점검: 투입 상위 (%)'],
     ['flagDensityBottom', '점검: 복합 밀도 하위 (%)'], ['concentrationTop', '집중도: 상위 행 (%)'],
-    ['smallInputBottom', '분모 작음: 투입 하위 (%)'], ['expandInputBottom', '확대 검토: 투입 하위 (%)'], ['expandDensityTop', '확대 검토: 복합 밀도 상위 (%)']];
+    ['smallInputBottom', '분모 작음: 투입 하위 (%)'], ['expandInputBottom', '확대 검토: 투입 하위 (%)'], ['expandDensityTop', '확대 검토: 복합 밀도 상위 (%)'],
+    ['smallCountMax', '과제 수 적음: 과제 수 이하 (개)', true]];
   function resetThresholdInputs() {
     var th = Object.assign({}, Core.DEFAULT_TH, curProfile().thresholds || {});
     $('th').innerHTML = TH_FIELDS.map(function (f) {
-      return '<div><label class="f" for="th-' + f[0] + '">' + f[1] + '</label><input type="number" id="th-' + f[0] + '" min="1" max="99" step="1" value="' + Math.round(th[f[0]] * 100) + '"></div>';
+      return '<div><label class="f" for="th-' + f[0] + '">' + f[1] + '</label><input type="number" id="th-' + f[0] + '" min="' + (f[2] ? 0 : 1) + '" max="' + (f[2] ? 9999 : 99) + '" step="1" value="' + (f[2] ? th[f[0]] : Math.round(th[f[0]] * 100)) + '"></div>';
     }).join('');
     TH_FIELDS.forEach(function (f) {
       $('th-' + f[0]).addEventListener('change', function () { readThresholds(); if (S.R) run(); });
@@ -53,7 +54,10 @@
   }
   function readThresholds() {
     var o = {};
-    TH_FIELDS.forEach(function (f) { var v = parseFloat($('th-' + f[0]).value); if (v > 0 && v < 100) o[f[0]] = v / 100; });
+    TH_FIELDS.forEach(function (f) {
+      var v = parseFloat($('th-' + f[0]).value);
+      if (f[2]) { if (v >= 0) o[f[0]] = v; } else if (v > 0 && v < 100) o[f[0]] = v / 100;
+    });
     S.th = o;
   }
 
@@ -145,7 +149,8 @@
     var c = { '논문형': 's1', '균형형': 's2', '특허형': 's3', '성과 없음': 'sn' }[t];
     return t ? '<span class="tag"><i style="background:var(--' + c + ')"></i>' + esc(t) + '</span>' : '';
   }
-  function cols(R, withType, withSmall) {
+  function hitsCell(n, cells) { return n === cells ? '<b>' + n + '/' + cells + '</b>' : n + '/' + cells; }
+  function cols(R, withType, withSmall, stab) {
     var u = R.units.input, f = R.flags, c = [];
     if (R.cols.year && R.years) c.push({ h: '연도', key: 'year', f: function (r) { return esc(r.year); }, sort: true });
     if (f.hasGroup) c.push({ h: '그룹', key: 'group', f: function (r) { return esc(r.group); }, l: true, sort: true });
@@ -158,7 +163,14 @@
       if (f.hasPaper || f.hasPatent) c.push({ h: '복합 밀도', key: 'comp', n: 1, f: function (r) { return N(r.comp); }, sort: true });
       if (f.hasBoth) c.push({ h: '유형', key: 'type', f: function (r) { return tagHtml(r.type); }, sort: true });
     }
-    if (withSmall) c.push({ h: '표시', key: 'small', f: function (r) { return r.small ? '<span class="tag small">분모 작음</span>' : ''; }, sort: true });
+    if (withSmall) c.push({ h: '표시', key: 'small', f: function (r) {
+      return (r.small ? '<span class="tag small">분모 작음</span> ' : '') + (r.fewTasks ? '<span class="tag small">과제 수 적음</span>' : '');
+    }, sort: true });
+    if (stab && R.stability) {
+      var cells = R.stability.cells;
+      if (stab === 'flag' || stab === 'both') c.push({ h: '점검 유지', key: 'flagHits', n: 1, f: function (r) { return stab === 'both' && !r.flagHits ? '' : hitsCell(r.flagHits, cells); }, sort: true });
+      if (stab === 'expand' || stab === 'both') c.push({ h: '확대 유지', key: 'expandHits', n: 1, f: function (r) { return stab === 'both' && !r.expandHits ? '' : hitsCell(r.expandHits, cells); }, sort: true });
+    }
     return c;
   }
 
@@ -230,13 +242,13 @@
 
     // 5. 점검 후보
     $('sec-flags').innerHTML = '<h2>6. 점검 후보</h2>' + (R.cut.inputHi === null ? '<div class="msg warn">논문·특허 컬럼이 없어 계산하지 않았습니다.</div>' :
-      '<p class="sub">투입 상위 ' + F.pct(R.thresholds.flagInputTop, 0) + '(≥ ' + N(R.cut.inputHi) + u + ')이면서 복합 밀도 하위 ' + F.pct(R.thresholds.flagDensityBottom, 0) + '(≤ ' + N(R.cut.densityLo) + '). 부실 판정이 아니라 사업 성격과 성과 시차를 먼저 확인할 대상입니다.</p>' +
-      (R.flagged.length ? table(cols(R, true), R.flagged) : '<div class="msg ok">조건에 맞는 행이 없습니다.</div>'));
+      '<p class="sub">투입 상위 ' + F.pct(R.thresholds.flagInputTop, 0) + '(≥ ' + N(R.cut.inputHi) + u + ')이면서 복합 밀도 하위 ' + F.pct(R.thresholds.flagDensityBottom, 0) + '(≤ ' + N(R.cut.densityLo) + '). 부실 판정이 아니라 사업 성격과 성과 시차를 먼저 확인할 대상입니다. 점검 유지는 투입·밀도 기준을 각각 ±5%p, ±10%p씩 옮긴 ' + R.stability.cells + '가지 중 후보로 잡힌 횟수이며, 같은 ' + R.stability.cells + '가지에서 후보 수는 ' + R.stability.flag.min + '~' + R.stability.flag.max + '행입니다.</p>' +
+      (R.flagged.length ? table(cols(R, true, true, 'flag'), R.flagged) : '<div class="msg ok">조건에 맞는 행이 없습니다.</div>'));
 
     // 6-2. 확대 검토 후보
     $('sec-expand').innerHTML = '<h2>7. 확대 검토 후보</h2>' + (R.cut.expandInputLo === null ? '<div class="msg warn">논문·특허 컬럼이 없어 계산하지 않았습니다.</div>' :
-      '<p class="sub">투입 하위 ' + F.pct(R.thresholds.expandInputBottom, 0) + '(≤ ' + N(R.cut.expandInputLo) + u + ')이면서 복합 밀도 상위 ' + F.pct(R.thresholds.expandDensityTop, 0) + '(≥ ' + N(R.cut.expandDensityHi) + '). 확대를 권하는 것이 아니라 더 확인할 대상입니다. 분모 작음(투입 하위 ' + F.pct(R.thresholds.smallInputBottom, 0) + ', ≤ ' + N(R.cut.smallLo) + u + ') 행은 밀도가 우연히 높게 나왔을 수 있어 뒤에 두었습니다.</p>' +
-      (R.expandList.length ? table(cols(R, true, true), R.expandList) : '<div class="msg ok">조건에 맞는 행이 없습니다.</div>'));
+      '<p class="sub">투입 하위 ' + F.pct(R.thresholds.expandInputBottom, 0) + '(≤ ' + N(R.cut.expandInputLo) + u + ')이면서 복합 밀도 상위 ' + F.pct(R.thresholds.expandDensityTop, 0) + '(≥ ' + N(R.cut.expandDensityHi) + '). 확대를 권하는 것이 아니라 더 확인할 대상입니다. 확대 유지는 같은 방식으로 기준을 옮긴 ' + R.stability.cells + '가지 중 잡힌 횟수이며 후보 수는 ' + R.stability.expand.min + '~' + R.stability.expand.max + '행입니다. 분모 작음(투입 하위 ' + F.pct(R.thresholds.smallInputBottom, 0) + ', ≤ ' + N(R.cut.smallLo) + u + ') 행은 밀도가 우연히 높게 나왔을 수 있어 뒤에 두었습니다.</p>' +
+      (R.expandList.length ? table(cols(R, true, true, 'expand'), R.expandList) : '<div class="msg ok">조건에 맞는 행이 없습니다.</div>'));
 
     // 6. 집계표
     var gs = R.groups;
@@ -292,7 +304,8 @@
     // 11. 한계
     $('sec-limits').innerHTML = '<h2>해석상 한계</h2><ul class="limits">' +
       '<li>성과는 투입 이후 시차를 두고 나타나므로 같은 해 투입과 성과를 바로 대응시키면 왜곡될 수 있습니다.</li>' +
-      '<li>투입이 작은 행은 논문·특허 몇 건만 늘어도 밀도가 크게 달라집니다. 확대 검토 후보는 분모 작음 표시를 함께 읽어야 합니다.</li>' +
+      '<li>투입이 작거나 과제 수가 적은 행은 논문·특허 몇 건만 달라도 밀도가 크게 달라집니다. 확대 검토 후보는 분모 작음·과제 수 적음 표시를 함께 읽어야 합니다.</li>' +
+      '<li>후보 기준(상위·하위 %)은 정해진 값이 아니라서, 기준을 옮기면 후보가 달라집니다. 유지 횟수가 낮은 행은 기준에 따라 잡히거나 빠지는 행입니다.</li>' +
       '<li>사업 목적(원천·사업화·인프라 등)이 달라 논문·특허 밀도를 사업 간 우열로 읽을 수 없습니다.</li>' +
       '<li>집계 자료이므로 개별 과제의 성과를 추정할 수 없습니다.</li>' +
       '<li>입력 자료가 다루는 범위(기관·사업·연도)에만 해당하며 국가 R&amp;D 전체를 대표하지 않습니다.</li></ul>';
@@ -300,7 +313,7 @@
   }
 
   function renderAll(R) {
-    var cs = cols(R, true, true), rows = R.analyzable.slice();
+    var cs = cols(R, true, true, 'both'), rows = R.analyzable.slice();
     if (S.sortKey) {
       var k = S.sortKey, d = S.sortDir;
       rows.sort(function (a, b) {
@@ -311,7 +324,7 @@
     }
     var shown = S.showAll ? rows : rows.slice(0, 30);
     rows.forEach(function (r) { r.flag = r.flag; });
-    $('sec-all').innerHTML = '<h2>9. 전체 지표표</h2><p class="sub">머리글을 누르면 정렬됩니다. 왼쪽 주황색 막대는 점검 후보, 청록색 막대는 확대 검토 후보입니다. 분모 작음은 투입이 작아 밀도가 흔들릴 수 있는 행입니다.</p>' +
+    $('sec-all').innerHTML = '<h2>9. 전체 지표표</h2><p class="sub">머리글을 누르면 정렬됩니다. 왼쪽 주황색 막대는 점검 후보, 청록색 막대는 확대 검토 후보입니다. 분모 작음은 투입이 작아, 과제 수 적음은 과제 수가 적어 밀도가 흔들릴 수 있는 행입니다. 점검 유지·확대 유지는 기준을 옮긴 25가지 중 후보로 잡힌 횟수입니다.</p>' +
       table(cs, shown, { sortKey: S.sortKey, sortDir: S.sortDir }) +
       (rows.length > 30 ? '<div style="margin-top:10px"><button type="button" id="a-more">' + (S.showAll ? '30행만 보기' : '전체 ' + rows.length + '행 보기') + '</button></div>' : '');
     var am = $('a-more'); if (am) am.onclick = function () { S.showAll = !S.showAll; renderAll(R); bindSort(); };

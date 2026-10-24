@@ -79,7 +79,7 @@
       hl.setAttribute('cx', best.x); hl.setAttribute('cy', best.y);
       var r = best.r;
       showTip(host, '<b>' + esc(r.label) + '</b><br>' + (r.group ? esc(r.group) + '<br>' : '') + '투입 ' + fmt(r.input) + R.units.input +
-        '<br>논문 ' + fmt(r.paper, 0) + ' · 특허 ' + fmt(r.patent, 0) + '<br>복합 밀도 ' + fmt(r.comp, 2) + (r.type ? '<br>' + r.type : '') + (r.flag ? '<br>점검 후보' : '') + (r.expand ? '<br>확대 검토 후보' : '') + (r.small ? '<br>분모 작음' : ''), e.clientX, e.clientY);
+        '<br>논문 ' + fmt(r.paper, 0) + ' · 특허 ' + fmt(r.patent, 0) + '<br>복합 밀도 ' + fmt(r.comp, 2) + (r.type ? '<br>' + r.type : '') + (r.flag ? '<br>점검 후보' : '') + (r.expand ? '<br>확대 검토 후보' : '') + (r.small ? '<br>분모 작음' : '') + (r.fewTasks ? '<br>과제 수 적음' : '') + (r.flag ? ' · 유지 ' + r.flagHits + '/' + R.stability.cells : '') + (r.expand ? ' · 유지 ' + r.expandHits + '/' + R.stability.cells : ''), e.clientX, e.clientY);
     });
     svg.addEventListener('mouseleave', function () { hl.setAttribute('cx', -50); hideTip(host); });
   }
