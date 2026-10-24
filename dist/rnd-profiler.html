@@ -898,6 +898,11 @@ window.BUILTIN = {"profiles":[{"id":"keit_performance","name":"KEIT 산업기술
 
   /* ---------- 컬럼 직접 지정 ---------- */
 
+  /* 컬럼 이름에 단위가 적혀 있을 때만(예: "연구비(백만원)") 채운다. 모르면 빈 칸으로 두어 사용자가 직접 쓰게 한다. */
+  function unitOf(name) {
+    var m = /(백만원|천만원|억원|천원|만원)/.exec(name || '');
+    return m ? m[1] : '';
+  }
   function guess(h, re, not) { return h.filter(function (x) { return re.test(x) && !(not && not.test(x)); }); }
   function buildMapForm() {
     var h = S.table[0].map(function (x) { return x.trim(); });
@@ -915,7 +920,7 @@ window.BUILTIN = {"profiles":[{"id":"keit_performance","name":"KEIT 산업기술
     $('mapform').innerHTML =
       '<p class="note">컬럼 역할을 지정하면 새 프로필이 만들어집니다. 투입 컬럼은 필수입니다.</p>' +
       '<div><label class="f" for="m-input">투입(연구비·출연금) *</label><select id="m-input">' + opt(g.input) + '</select></div>' +
-      '<div class="grid2"><div><label class="f" for="m-unit">투입 단위 표기</label><input type="text" id="m-unit" value="억원"></div>' +
+      '<div class="grid2"><div><label class="f" for="m-unit">투입 단위 표기</label><input type="text" id="m-unit" value="' + esc(unitOf(g.input)) + '" placeholder="필수: 예) 억원, 백만원, 천원"></div>' +
       '<div><label class="f" for="m-per">밀도 기준 (투입 몇 단위당)</label><input type="number" id="m-per" value="10" min="1"></div></div>' +
       '<div><label class="f" for="m-count">과제 수</label><select id="m-count">' + opt(g.count, true) + '</select></div>' +
       '<div><label class="f">논문 컬럼 (여러 개 선택 가능)</label>' + chk('m-paper', g.paper) + '</div>' +
@@ -924,8 +929,15 @@ window.BUILTIN = {"profiles":[{"id":"keit_performance","name":"KEIT 산업기술
       '<div><label class="f" for="m-year">연도</label><select id="m-year">' + opt(g.year, true) + '</select></div>' +
       '<div><label class="f" for="m-label">행 이름으로 쓸 컬럼 (여러 개 선택 가능)</label>' + chk('m-label', [h[0]]) + '</div>' +
       '<div class="row"><button type="button" class="primary" id="m-go">이 지정으로 분석</button><button type="button" id="m-dl">프로필 JSON 내려받기</button></div>';
-    $('m-go').onclick = function () { var p = mapProfile(); S.profiles.push(p); fillProfileSelect(); $('profile').value = p.id; resetThresholdInputs(); run(); };
-    $('m-dl').onclick = function () { var p = mapProfile(); download(p.id + '.json', JSON.stringify(p, null, 2) + '\n', 'application/json'); };
+    $('m-unit').oninput = function () { this.dataset.touched = '1'; };
+    $('m-input').onchange = function () { if (!$('m-unit').dataset.touched) $('m-unit').value = unitOf(this.value); };
+    $('m-go').onclick = function () { if (!unitFilled()) return; var p = mapProfile(); S.profiles.push(p); fillProfileSelect(); $('profile').value = p.id; resetThresholdInputs(); run(); };
+    $('m-dl').onclick = function () { if (!unitFilled()) return; var p = mapProfile(); download(p.id + '.json', JSON.stringify(p, null, 2) + '\n', 'application/json'); };
+  }
+  function unitFilled() {
+    if ($('m-unit').value.trim()) return true;
+    setMsg('err', '투입 단위를 입력하세요(예: 억원, 백만원). 단위를 모르는 채로 억원으로 가정하면 합계와 밀도가 잘못 표시됩니다.');
+    $('mapbox').open = true; $('m-unit').focus(); return false;
   }
   function checked(name) { return Array.prototype.map.call(document.querySelectorAll('input[name="' + name + '"]:checked'), function (e) { return e.value; }); }
   function mapProfile() {
